@@ -1,0 +1,6932 @@
+<meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Konfigurátor řeziva – Pila Železnice</title>
+
+
+
+
+
+
+
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+
+
+
+
+
+
+
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin="">
+</script>
+
+
+
+
+
+
+
+
+<div id="pz-app">
+  <style>
+    #pz-app{
+      --pz-green:#2f5f3a;--pz-green-dark:#1f4328;--pz-green-soft:#eef6f0;--pz-bg:#f6f8f5;
+      --pz-card:#fff;--pz-border:#d9e5dc;--pz-text:#1e2a22;--pz-muted:#66736a;
+      --pz-danger:#b42318;--pz-warning:#9a6200;--pz-shadow:0 18px 45px rgba(20,50,30,.12);
+      font-family:Arial,Helvetica,sans-serif;color:var(--pz-text);max-width:1380px;margin:24px auto;padding:12px;
+    }
+    #pz-app *{box-sizing:border-box}
+    .pz-shell{background:var(--pz-bg);border:1px solid var(--pz-border);border-radius:26px;overflow:hidden;box-shadow:var(--pz-shadow)}
+    .pz-top{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:18px 22px;background:linear-gradient(135deg,var(--pz-green),var(--pz-green-dark));color:#fff}
+    .pz-brand{display:flex;align-items:center;gap:16px}
+    .pz-logo{
+  width:78px;
+  height:auto;
+  background:transparent;
+  border-radius:0;
+  padding:0;
+}
+    .pz-brand h1{margin:0;font-size:26px;line-height:1.1}
+    .pz-brand p{margin:4px 0 0;opacity:.9;font-size:14px}
+    .pz-cart-btn{border:1px solid rgba(255,255,255,.32);background:rgba(255,255,255,.12);color:#fff;border-radius:16px;padding:12px 16px;cursor:pointer;font-weight:700;min-width:260px;text-align:left;transition:.18s;display:flex;flex-direction:column;gap:7px}
+    .pz-cart-btn-title{display:block;font-size:15px;line-height:1.2}
+    .pz-cart-btn-meta{display:flex;align-items:center;justify-content:space-between;gap:16px;width:100%;font-size:13px}
+    .pz-cart-btn-count{display:flex;align-items:center;gap:6px;opacity:.95}
+    .pz-cart-btn-total{font-size:15px;font-weight:800;white-space:nowrap}
+    .pz-cart-btn:hover,.pz-cart-btn.pz-bump{transform:translateY(-2px) scale(1.02);background:rgba(255,255,255,.2)}
+    .pz-badge{display:inline-flex;align-items:center;justify-content:center;min-width:26px;height:26px;border-radius:999px;background:#fff;color:var(--pz-green-dark);margin-left:8px}
+    /* =====================================================
+   NOVÁ SEKCE DOPRAVA
+===================================================== */
+.pz-delivery{
+  margin:20px 20px 0;
+  background:#fff;
+  border:1px solid var(--pz-border);
+  border-radius:22px;
+  overflow:hidden;
+  transition:.2s;
+}
+
+
+
+
+
+
+
+
+.pz-delivery-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:20px;
+  padding:18px 20px;
+  background:var(--pz-green-soft);
+}
+
+
+
+
+
+
+
+
+.pz-delivery-title{
+  display:flex;
+  align-items:center;
+  gap:12px;
+}
+
+
+
+
+
+
+
+
+.pz-delivery-icon{
+  width:42px;
+  height:42px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  border-radius:13px;
+  background:var(--pz-green);
+  color:#fff;
+  font-size:21px;
+  font-weight:800;
+}
+
+
+
+
+
+
+
+
+.pz-delivery-title h2{
+  margin:0;
+  color:var(--pz-green-dark);
+  font-size:21px;
+}
+
+
+
+
+
+
+
+
+.pz-delivery-title p{
+  margin:4px 0 0;
+  color:var(--pz-muted);
+  font-size:13px;
+}
+
+
+
+
+
+
+
+
+.pz-delivery-choice{
+  display:flex;
+  gap:8px;
+}
+
+
+
+
+
+
+
+
+.pz-delivery-choice button{
+  min-width:76px;
+  border:1px solid var(--pz-border);
+  border-radius:13px;
+  padding:11px 16px;
+  background:#fff;
+  color:var(--pz-green-dark);
+  font-weight:800;
+  cursor:pointer;
+}
+
+
+
+
+
+
+
+
+.pz-delivery-choice button:hover{
+  border-color:var(--pz-green);
+  background:var(--pz-green-soft);
+}
+
+
+
+
+
+
+
+
+.pz-delivery-body{
+  padding:20px;
+  display:none;
+  grid-template-columns:minmax(0,1fr) minmax(300px,.85fr);
+  gap:20px;
+  border-top:1px solid var(--pz-border);
+}
+
+
+
+
+
+
+
+
+.pz-delivery.is-yes .pz-delivery-body{
+  display:grid;
+}
+
+
+
+
+
+
+
+
+.pz-delivery-choice button.active{
+  background:var(--pz-green);
+  border-color:var(--pz-green);
+  color:#fff;
+}
+
+
+
+
+
+
+
+
+.pz-delivery.is-no .pz-delivery-head{
+  background:#eef0ee;
+}
+
+
+
+
+
+
+
+
+.pz-delivery.is-no .pz-delivery-icon{
+  background:#929b94;
+}
+
+
+
+
+
+
+
+
+.pz-delivery.is-no .pz-delivery-title h2,
+.pz-delivery.is-no .pz-delivery-title p{
+  color:#7a827c;
+}
+
+
+
+
+
+
+
+
+.pz-delivery.is-no{
+  border-color:#dfe3e0;
+}
+
+
+
+
+
+
+
+
+.pz-delivery-form{
+  display:grid;
+  gap:15px;
+}
+
+
+
+
+
+
+
+
+.pz-delivery-intro{
+  margin:0;
+  padding:12px 14px;
+  border-radius:13px;
+  background:#f7faf8;
+  color:var(--pz-muted);
+  font-size:14px;
+}
+
+
+
+
+
+
+
+
+.pz-delivery-fields{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:14px;
+}
+
+
+
+
+
+
+
+
+.pz-delivery-price{
+  padding:16px;
+  border-radius:16px;
+  background:var(--pz-green);
+  color:#fff;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:16px;
+}
+
+
+
+
+
+
+
+
+.pz-delivery-price span{
+  font-size:14px;
+  opacity:.9;
+}
+
+
+
+
+
+
+
+
+.pz-delivery-price strong{
+  font-size:22px;
+}
+
+
+
+
+
+
+
+
+.pz-delivery-consent{
+  display:flex;
+  align-items:flex-start;
+  gap:9px;
+  font-size:13px;
+  color:var(--pz-muted);
+}
+
+
+
+
+
+
+
+
+.pz-delivery-consent input{
+  margin-top:2px;
+  accent-color:var(--pz-green);
+}
+
+
+
+
+
+
+
+
+.pz-delivery-map{
+  min-height:330px;
+  border:1px dashed #9db7a3;
+  border-radius:18px;
+  background:
+    linear-gradient(rgba(238,246,240,.78),rgba(238,246,240,.78)),
+    repeating-linear-gradient(
+      45deg,
+      #dce9df,
+      #dce9df 12px,
+      #edf5ef 12px,
+      #edf5ef 24px
+    );
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:0; 
+  text-align:center;
+  color:var(--pz-green-dark);
+}
+
+
+
+
+
+
+
+
+    #pz-route-map{
+  width:100%;
+  height:100%;
+  min-height:330px;
+  border-radius:18px;
+}
+  #pz-route-map{
+    width:100%;
+    height:100%;
+    min-height:330px;
+}  
+
+
+
+
+
+
+
+
+  .pz-map-label{
+  background:#e8f3d9 !important;
+  color:#1f4328 !important;
+  border:1px solid #c5e1b5 !important;
+  border-radius:6px !important;
+  padding:3px 7px !important;
+  font-size:12px !important;
+  line-height:1.2 !important;
+  font-weight:600 !important;
+  font-family:Arial,Helvetica,sans-serif !important;
+  white-space:nowrap !important;
+  box-shadow:0 2px 5px rgba(20,50,30,.18) !important;
+}
+
+
+
+
+
+
+
+
+.pz-map-label::before{
+  border-right-color:#e8f3d9 !important;
+}  
+
+
+
+
+
+
+
+
+.pz-delivery-map strong{
+  display:block;
+  font-size:18px;
+  margin-bottom:7px;
+}
+
+
+
+
+
+
+
+
+.pz-delivery-map span{
+  display:block;
+  color:var(--pz-muted);
+  font-size:13px;
+  line-height:1.5;
+}
+
+
+
+
+
+
+
+
+@media(max-width:1050px){
+  .pz-delivery-body{
+    grid-template-columns:1fr;
+  }
+}
+
+
+
+
+
+
+
+
+@media(max-width:620px){
+  .pz-delivery{
+    margin:12px 12px 0;
+  }
+
+
+
+
+
+
+
+
+  .pz-delivery-head{
+    align-items:flex-start;
+    flex-direction:column;
+  }
+
+
+
+
+
+
+
+
+  .pz-delivery-choice{
+    width:100%;
+  }
+
+
+
+
+
+
+
+
+  .pz-delivery-choice button{
+    flex:1;
+  }
+
+
+
+
+
+
+
+
+  .pz-delivery-body{
+    padding:14px;
+  }
+
+
+
+
+
+
+
+
+  .pz-delivery-fields{
+    grid-template-columns:1fr;
+  }
+
+
+
+
+
+
+
+
+  .pz-delivery-price{
+    align-items:flex-start;
+    flex-direction:column;
+  }
+}
+    .pz-main{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(330px,.55fr);gap:18px;padding:20px}
+    .pz-panel{background:var(--pz-card);border:1px solid var(--pz-border);border-radius:22px;padding:20px}
+    .pz-section{margin-bottom:22px}
+    .pz-section h2,.pz-panel h2{margin:0 0 14px;font-size:21px;color:var(--pz-green-dark)}
+    .pz-muted{color:var(--pz-muted);font-size:14px;line-height:1.45}
+    .pz-cards{display:grid;grid-template-columns:repeat(5,minmax(120px,1fr));gap:10px}
+    .pz-product-cards{grid-template-columns:repeat(4,minmax(160px,1fr))}
+    .pz-card-choice{border:1px solid var(--pz-border);background:#fff;border-radius:16px;padding:14px;cursor:pointer;transition:.16s;text-align:left;min-height:58px}
+    .pz-card-choice strong{display:block;font-size:15px}
+    .pz-card-choice span{display:block;font-size:12px;color:var(--pz-muted);margin-top:5px}
+    .pz-card-choice:hover{border-color:var(--pz-green);transform:translateY(-1px)}
+    .pz-card-choice.active{background:var(--pz-green);border-color:var(--pz-green);color:#fff}
+    .pz-card-choice.active span{color:rgba(255,255,255,.84)}
+    .pz-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+    .pz-field{display:flex;flex-direction:column;gap:7px}
+    .pz-field label{font-weight:700;font-size:14px}
+    .pz-field input,.pz-field select{width:100%;border:1px solid var(--pz-border);border-radius:13px;padding:12px 13px;font-size:15px;background:#fff}
+    .pz-field input[type=range]{padding:0;accent-color:var(--pz-green)}
+    .pz-inline-control{display:grid;grid-template-columns:1fr 92px;gap:10px;align-items:center}
+    .pz-fixed{padding:12px 13px;background:var(--pz-green-soft);border:1px solid var(--pz-border);border-radius:13px;font-weight:700}
+    .pz-error{font-size:12px;color:var(--pz-danger);display:none}
+    .pz-field.invalid .pz-error{display:block}
+    .pz-services{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+    .pz-service{border:1px solid var(--pz-border);background:#fff;border-radius:16px;padding:14px;cursor:pointer;transition:.16s}
+    .pz-service.active{border-color:var(--pz-green);background:var(--pz-green-soft)}
+    .pz-service h3{margin:0 0 8px;font-size:15px;color:var(--pz-green-dark)}
+    .pz-service p{margin:0;font-size:13px;color:var(--pz-muted)}
+    .pz-service-options{margin-top:10px;display:none;gap:7px}
+    .pz-service.active .pz-service-options{display:grid}
+    .pz-radio-row{display:flex;align-items:center;gap:8px;font-size:13px}
+    .pz-radio-row input{accent-color:var(--pz-green)}
+    .pz-preview{position:sticky;top:12px}
+    .pz-kpi{display:flex;justify-content:space-between;gap:14px;padding:11px 0;border-bottom:1px solid var(--pz-border);font-size:14px}
+    .pz-kpi strong{text-align:right}
+    .pz-total{margin-top:14px;background:var(--pz-green);color:#fff;border-radius:16px;padding:16px;display:flex;justify-content:space-between;gap:14px;font-weight:800;font-size:18px}
+    .pz-btn{border:0;border-radius:15px;padding:14px 18px;background:var(--pz-green);color:#fff;font-weight:800;cursor:pointer;transition:.16s}
+    .pz-btn:hover{background:var(--pz-green-dark)}
+    .pz-btn:disabled{background:#aab5ad;cursor:not-allowed}
+    .pz-btn.secondary{background:#eef2ef;color:var(--pz-green-dark);border:1px solid var(--pz-border)}
+    .pz-btn.danger{background:#fee4e2;color:var(--pz-danger)}
+    .pz-btn.dark{background:#1f2937}
+    .pz-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
+
+    /* ===== DŮLEŽITÉ UPOZORNĚNÍ PŘED POPTÁVKOU ===== */
+    .pz-important-note{
+      margin-top:16px;
+      display:flex;
+      align-items:flex-start;
+      gap:13px;
+      padding:14px 16px;
+      border:1px solid #e3aaaa;
+      border-radius:14px;
+      background:#fff7f7;
+      color:#8b2f2f;
+    }
+    .pz-important-note-icon{
+      flex:0 0 30px;
+      width:30px;
+      height:30px;
+      border-radius:50%;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      background:#8b2f2f;
+      color:#fff;
+      font-size:20px;
+      line-height:1;
+      font-weight:900;
+      margin-top:1px;
+    }
+    .pz-important-note-text{
+      min-width:0;
+      font-size:14px;
+      line-height:1.5;
+    }
+    .pz-important-note-text > strong{
+      display:block;
+      color:#8b2f2f;
+      font-size:15px;
+      margin-bottom:4px;
+    }
+    .pz-important-note-text p{
+      margin:0;
+      color:#8b2f2f;
+    }
+    .pz-important-note-text p strong{
+      color:#742323;
+    }
+    @media(max-width:620px){
+      .pz-important-note{
+        padding:13px;
+        gap:11px;
+      }
+      .pz-important-note-icon{
+        flex-basis:28px;
+        width:28px;
+        height:28px;
+        font-size:18px;
+      }
+      .pz-important-note-text{
+        font-size:13px;
+      }
+    }
+    .pz-summary-bar{margin:0 20px 20px;background:#fff;border:1px solid var(--pz-border);border-radius:22px;padding:18px;display:grid;grid-template-columns:repeat(5,1fr);gap:12px}
+    .pz-summary-item{background:var(--pz-green-soft);border-radius:14px;padding:12px}
+    .pz-summary-item span{display:block;color:var(--pz-muted);font-size:12px;margin-bottom:4px}
+    .pz-summary-item strong{font-size:17px}
+    .pz-modal{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:999999;display:none;align-items:center;justify-content:center;padding:18px}
+    .pz-modal.open{display:flex}
+    .pz-modal-box{width:min(1160px,96vw);max-height:92vh;overflow:auto;background:#fff;border-radius:24px;box-shadow:0 30px 80px rgba(0,0,0,.3)}
+    .pz-modal-head{position:sticky;top:0;background:#fff;border-bottom:1px solid var(--pz-border);padding:18px;display:flex;justify-content:space-between;align-items:center;z-index:2}
+    .pz-modal-head h2{margin:0;color:var(--pz-green-dark)}
+    .pz-modal-body{padding:18px}
+    .pz-cart-item{border:1px solid var(--pz-border);border-radius:18px;padding:15px;margin-bottom:12px;background:#fff}
+    .pz-cart-title{display:flex;justify-content:space-between;gap:12px;margin-bottom:10px}
+    .pz-cart-title strong{color:var(--pz-green-dark)}
+    .pz-detail-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}
+    .pz-detail{background:#f7faf8;border-radius:12px;padding:9px;font-size:13px}
+    .pz-detail span{display:block;color:var(--pz-muted);font-size:11px;margin-bottom:4px}
+    .pz-transport{margin-top:18px;background:var(--pz-green-soft);border:1px solid var(--pz-border);border-radius:18px;padding:16px}
+    .pz-suggest{position:relative}
+    .pz-suggestions{position:absolute;left:0;right:0;top:100%;background:#fff;border:1px solid var(--pz-border);border-radius:14px;box-shadow:0 12px 35px rgba(0,0,0,.12);z-index:10;display:none;max-height:240px;overflow:auto}
+    .pz-suggestions button{display:block;width:100%;text-align:left;background:#fff;border:0;padding:10px 12px;cursor:pointer}
+    .pz-suggestions button:hover,.pz-suggestions button.active{background:var(--pz-green-soft)}
+    .pz-status{font-size:13px;color:var(--pz-muted);margin-top:6px}
+
+
+
+
+
+
+
+
+    .pz-toast{
+      position:fixed;
+      inset:0;
+      z-index:100000;
+      display:none;
+      align-items:center;
+      justify-content:center;
+      padding:20px;
+      background:rgba(255,255,255,.38);
+      backdrop-filter:blur(6px);
+      -webkit-backdrop-filter:blur(6px);
+      color:#fff;
+      font-size:22px;
+      font-weight:700;
+      text-align:center;
+    }
+    .pz-toast::before{
+      content:"✓";
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      flex:0 0 44px;
+      width:44px;
+      height:44px;
+      margin-right:18px;
+      border:3px solid #fff;
+      border-radius:50%;
+      color:#fff;
+      font-size:27px;
+      font-weight:500;
+      line-height:1;
+      z-index:2;
+    }
+    .pz-toast::after{
+      content:"";
+      position:absolute;
+      left:50%;
+      top:50%;
+      transform:translate(-50%,-50%);
+      width:min(560px,calc(100vw - 40px));
+      min-height:118px;
+      background:#2f753b;
+      border:2px solid rgba(255,255,255,.9);
+      border-radius:22px;
+      box-shadow:0 18px 45px rgba(0,0,0,.18);
+      z-index:-1;
+    }
+    .pz-toast.show{display:flex}
+    .pz-print-only{display:none}
+    @media(max-width:1050px){
+      .pz-main{grid-template-columns:1fr}.pz-preview{position:static}.pz-cards,.pz-product-cards{grid-template-columns:repeat(2,1fr)}
+      .pz-services{grid-template-columns:repeat(2,1fr)}.pz-summary-bar{grid-template-columns:repeat(2,1fr)}
+    }
+    @media(max-width:620px){
+      #pz-app{padding:6px;margin:10px auto}.pz-top{align-items:stretch;flex-direction:column}.pz-cart-btn{width:100%;min-width:0;text-align:left;padding:13px 14px}.pz-cart-btn-meta{gap:10px}.pz-cart-btn-total{font-size:14px}.pz-toast{padding:16px 28px;font-size:18px;line-height:1.25}.pz-toast::before{flex-basis:38px;width:38px;height:38px;margin-right:12px;font-size:23px;border-width:2px}.pz-toast::after{width:calc(100vw - 32px);min-height:100px;border-radius:18px}
+      .pz-logo{width:64px}.pz-brand h1{font-size:22px}.pz-main{padding:12px}.pz-panel{padding:14px}
+      .pz-cards,.pz-product-cards,.pz-grid,.pz-services,.pz-detail-grid,.pz-summary-bar{grid-template-columns:1fr}
+      .pz-inline-control{grid-template-columns:1fr}.pz-modal{padding:8px}.pz-modal-box{max-height:96vh}
+    }
+
+    /* ===== 3D VIZUALIZACE ŘEZIVA ===== */
+    .pz-visualizer{
+      margin-top:20px;
+      padding-top:18px;
+      border-top:1px solid var(--pz-border);
+    }
+    .pz-visualizer-head{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+      margin-bottom:10px;
+    }
+    .pz-visualizer-head h2{
+      margin:0!important;
+      font-size:18px!important;
+    }
+    .pz-3d-expand{
+      width:42px;
+      height:42px;
+      flex:0 0 42px;
+      border:1px solid var(--pz-border);
+      border-radius:12px;
+      background:#fff;
+      color:var(--pz-green-dark);
+      font-size:20px;
+      line-height:1;
+      font-weight:800;
+      cursor:pointer;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      transition:.16s;
+    }
+    .pz-3d-expand:hover{
+      border-color:var(--pz-green);
+      background:var(--pz-green-soft);
+    }
+    .pz-3d-stage{
+      position:relative;
+      width:100%;
+      height:230px;
+      border:1px solid var(--pz-border);
+      border-radius:16px;
+      overflow:hidden;
+      background:
+        radial-gradient(circle at 50% 35%, rgba(255,255,255,.96), rgba(244,247,244,.96) 58%, rgba(236,241,237,.98) 100%);
+    }
+    .pz-3d-stage canvas{
+      display:block;
+      width:100%;
+      height:100%;
+      cursor:grab;
+      touch-action:none;
+      user-select:none;
+      -webkit-user-select:none;
+    }
+    .pz-3d-stage canvas:active{cursor:grabbing}
+    .pz-3d-message{
+      position:absolute;
+      inset:0;
+      display:none;
+      align-items:center;
+      justify-content:center;
+      padding:24px;
+      text-align:center;
+      pointer-events:none;
+    }
+    .pz-3d-message.show{display:flex}
+    .pz-3d-message-inner{
+      max-width:340px;
+    }
+    .pz-3d-message strong{
+      display:block;
+      color:var(--pz-green-dark);
+      font-size:16px;
+      margin-bottom:7px;
+    }
+    .pz-3d-message span{
+      display:block;
+      color:var(--pz-muted);
+      font-size:13px;
+      line-height:1.5;
+    }
+    .pz-3d-legend{
+      display:none;
+      margin-top:10px;
+      padding:10px 12px;
+      border-radius:12px;
+      background:#f7faf8;
+      color:var(--pz-muted);
+      font-size:12px;
+      line-height:1.45;
+    }
+    .pz-3d-legend.show{display:block}
+    .pz-3d-dash-sample{
+      display:inline-block;
+      width:34px;
+      margin-right:7px;
+      border-top:2px dashed var(--pz-green-dark);
+      vertical-align:middle;
+      transform:translateY(-2px);
+    }
+
+    .pz-3d-modal{
+      position:fixed;
+      inset:0;
+      z-index:1000000;
+      display:none;
+      align-items:center;
+      justify-content:center;
+      padding:18px;
+      background:rgba(0,0,0,.58);
+    }
+    .pz-3d-modal.open{display:flex}
+    .pz-3d-modal-box{
+      width:min(1040px,86vw);
+      max-height:90vh;
+      display:flex;
+      flex-direction:column;
+      overflow:hidden;
+      background:#fff;
+      border-radius:24px;
+      box-shadow:0 30px 80px rgba(0,0,0,.32);
+    }
+    .pz-3d-modal-head{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:16px;
+      padding:16px 18px;
+      border-bottom:1px solid var(--pz-border);
+    }
+    .pz-3d-modal-head h2{
+      margin:0;
+      color:var(--pz-green-dark);
+      font-size:22px;
+    }
+    .pz-3d-close{
+      width:46px;
+      height:46px;
+      flex:0 0 46px;
+      border:0;
+      border-radius:14px;
+      background:#eef2ef;
+      color:var(--pz-green-dark);
+      font-size:28px;
+      line-height:1;
+      cursor:pointer;
+    }
+    .pz-3d-modal-body{
+      padding:18px;
+      overflow:auto;
+    }
+    .pz-3d-modal-stage{
+      height:min(62vh,620px);
+      min-height:420px;
+    }
+    .pz-3d-toolbar{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:14px;
+      margin-top:12px;
+      flex-wrap:wrap;
+    }
+    .pz-3d-help{
+      color:var(--pz-muted);
+      font-size:13px;
+      line-height:1.4;
+    }
+    .pz-3d-reset{
+      border:1px solid var(--pz-border);
+      border-radius:12px;
+      padding:10px 13px;
+      background:#fff;
+      color:var(--pz-green-dark);
+      font-weight:700;
+      cursor:pointer;
+    }
+    .pz-3d-reset:hover{
+      background:var(--pz-green-soft);
+      border-color:var(--pz-green);
+    }
+    @media(max-width:620px){
+      .pz-3d-stage{height:210px}
+      .pz-3d-modal{padding:8px}
+      .pz-3d-modal-box{
+        width:calc(100vw - 16px);
+        max-height:94vh;
+        border-radius:18px;
+      }
+      .pz-3d-modal-head{padding:12px 13px}
+      .pz-3d-modal-head h2{font-size:19px}
+      .pz-3d-modal-body{padding:12px}
+      .pz-3d-modal-stage{
+        height:58vw;
+        min-height:300px;
+        max-height:430px;
+      }
+      .pz-3d-toolbar{align-items:stretch;flex-direction:column}
+      .pz-3d-reset{width:100%}
+    }
+
+    @media print{
+      .pz-visualizer,.pz-3d-modal{display:none!important}
+    }
+
+    @media print{
+      body *{visibility:hidden!important}
+      #pz-app,#pz-app *{visibility:visible!important}
+      #pz-app{position:absolute;left:0;top:0;max-width:none;width:100%;margin:0;padding:0;color:#111}
+      .pz-top,.pz-main,.pz-summary-bar,.pz-modal-head .pz-btn,.pz-actions,.pz-btn,.pz-toast{display:none!important}
+      .pz-shell{box-shadow:none;border:0;border-radius:0;background:#fff}
+      .pz-modal{position:static;display:block!important;background:#fff;padding:0}
+      .pz-modal-box{width:100%;max-height:none;box-shadow:none;border-radius:0;overflow:visible}
+      .pz-modal-head{position:static;border-bottom:2px solid #111}
+      .pz-modal-head h2{display:none}
+      .pz-modal-body{padding:0}
+      .pz-print-only{display:block!important}
+      .pz-print-header{display:flex!important;justify-content:space-between;gap:20px;align-items:flex-start;border-bottom:2px solid #111;margin-bottom:14px;padding-bottom:12px}
+      .pz-print-logo{width:160px}
+      .pz-cart-item,.pz-transport,.pz-summary-print{page-break-inside:avoid;border:1px solid #888;background:#fff;margin-bottom:10px}
+      .pz-detail-grid{grid-template-columns:repeat(5,1fr)}
+      .pz-detail{border:1px solid #ddd;background:#fff}
+    }
+    /* Fajfky správně vyplněné adresy */
+.pz-field,
+.pz-suggest {
+  position: relative;
+}
+
+
+
+
+
+
+
+
+.pz-field-check {
+  position: absolute;
+  right: 13px;
+
+
+
+
+
+
+
+
+  width: 19px;
+  height: 19px;
+  border-radius: 50%;
+
+
+
+
+
+
+
+
+  background: var(--pz-green);
+  color: #fff;
+
+
+
+
+
+
+
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+
+
+
+
+
+
+
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+
+
+
+
+
+
+
+
+  z-index: 5;
+  pointer-events: none;
+  opacity: 0;
+visibility: hidden;
+}
+
+
+
+
+
+
+
+
+    .pz-field-check.is-invalid {
+  background: #8b2f2f;
+  opacity: 1;
+  visibility: visible;
+  color: transparent;
+}
+
+
+
+
+
+
+
+
+  .pz-field-check.is-invalid::before {
+  content: "×";
+  color: #fff;
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+
+
+
+
+
+
+
+    .pz-field-check.is-visible {
+  opacity: 1;
+  visibility: visible;
+}
+.pz-input-check-wrap {
+  position: relative;
+  width: 100%;
+}
+
+
+
+
+
+
+
+
+.pz-input-check-wrap input {
+  width: 100%;
+}
+
+
+
+
+
+
+
+
+.pz-input-check-wrap .pz-field-check {
+  position: absolute;
+  right: 13px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+
+
+
+
+
+
+
+#pz-delivery-street,
+#pz-delivery-city,
+#pz-delivery-postcode {
+  padding-right: 48px;
+}
+    .pz-delivery-consent a {
+  color: var(--pz-green);
+  font-weight: 600;
+}
+
+
+
+
+
+
+
+
+.pz-delivery-consent a:hover {
+  color: var(--pz-green-dark);
+}
+    .pz-required-error {
+  border-color: #d98b8b !important;
+  background-color: #fff7f7 !important;
+}
+
+
+
+
+
+
+
+
+.pz-delivery-consent.pz-required-error {
+  border: 1px solid #e3aaaa;
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+   /* ===== SBALENÁ DOPRAVA ===== */
+
+
+
+
+
+
+
+
+.pz-delivery-collapsed{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:20px;
+  padding:18px 20px;
+  background:#eef6f0;
+  border:1px solid #d9e5dc;
+  border-radius:16px;
+}
+
+
+
+
+
+
+
+
+.pz-delivery-collapsed > div{
+  min-width:0;
+}
+
+
+
+
+
+
+
+
+.pz-delivery-collapsed strong{
+  display:block;
+  color:#1f4328;
+  font-size:18px;
+  font-weight:800;
+  margin-bottom:5px;
+}
+
+
+
+
+
+
+
+
+#pz-delivery-collapsed-address{
+  color:#66736a;
+  font-size:14px;
+  line-height:1.4;
+}
+
+
+
+
+
+
+
+
+#pz-delivery-edit{
+  flex-shrink:0;
+  border:0;
+  border-radius:12px;
+  padding:11px 18px;
+  background:#2f5f3a;
+  color:#fff;
+  font-weight:700;
+  font-size:14px;
+  cursor:pointer;
+}
+
+
+
+
+
+
+
+
+#pz-delivery-edit:hover{
+  background:#1f4328;
+}
+
+
+
+
+
+
+
+
+@media (max-width:600px){
+  .pz-delivery-collapsed{
+    align-items:flex-start;
+    flex-direction:column;
+  }
+
+
+
+
+
+
+
+
+  #pz-delivery-edit{
+    width:100%;
+  }
+} 
+ /* ===== Hoblování – výběr počtu stran ===== */
+
+
+
+
+
+
+
+
+.pz-service {
+  position: relative;
+}
+
+
+
+
+
+
+
+
+.pz-planing-menu {
+  position: absolute;
+  left: 14px;
+  top: calc(100% - 6px);
+  width: calc(100% - 28px);
+
+
+
+
+
+
+
+
+  background: var(--pz-green);
+  border-radius: 14px;
+  overflow: hidden;
+
+
+
+
+
+
+
+
+  box-shadow: 0 10px 28px rgba(0,0,0,.22);
+
+
+
+
+
+
+
+
+  z-index: 1000;
+}
+
+
+
+
+
+
+
+
+.pz-planing-menu button {
+  display: block;
+  width: 100%;
+
+
+
+
+
+
+
+
+  padding: 14px 16px;
+
+
+
+
+
+
+
+
+  border: 0;
+  border-bottom: 1px solid rgba(255,255,255,.12);
+
+
+
+
+
+
+
+
+  background: transparent;
+
+
+
+
+
+
+
+
+  color: #fff;
+  font: inherit;
+  font-size: 15px;
+  text-align: left;
+
+
+
+
+
+
+
+
+  cursor: pointer;
+}
+
+
+
+
+
+
+
+
+.pz-planing-menu button:last-child {
+  border-bottom: 0;
+}
+
+
+
+
+
+
+
+
+.pz-planing-menu button:hover {
+  background: rgba(255,255,255,.10);
+}   
+  
+    /* ===== KROK 3B: PDF / tiskový souhrn podle předlohy ===== */
+    .pz-pdf-head,.pz-pdf-items-heading,#pz-pdf-delivery-section{display:none}
+
+    @media print{
+      @page{size:A4;margin:12mm 15mm 14mm}
+      html,body{background:#fff!important;margin:0!important;padding:0!important}
+      body *{visibility:hidden!important}
+
+      #pz-cart-modal,#pz-cart-modal *{visibility:visible!important}
+      .pz-top,.pz-main,.pz-summary-bar,.pz-delivery,.pz-toast{display:none!important}
+
+      #pz-cart-modal{
+        position:static!important;inset:auto!important;display:block!important;
+        width:100%!important;background:#fff!important;padding:0!important;
+      }
+      #pz-cart-modal .pz-modal-box{
+        width:100%!important;max-width:none!important;max-height:none!important;
+        overflow:visible!important;margin:0!important;padding:0!important;
+        box-shadow:none!important;border:0!important;border-radius:0!important;background:#fff!important;
+      }
+      #pz-cart-modal .pz-modal-head,
+      #pz-cart-modal .pz-actions,
+      #pz-cart-modal .pz-summary-print > h2,
+      #pz-cart-modal .pz-muted:last-child,
+      .pz-important-note,
+      .pz-no-print,.pz-screen-item-content{display:none!important}
+
+      #pz-cart-modal .pz-modal-body{padding:0!important;margin:0!important;overflow:visible!important}
+      .pz-print-only{display:block!important}
+
+      /* HLAVIČKA */
+      .pz-pdf-head{display:block!important;margin:0 0 18px!important}
+      .pz-pdf-brand{
+        display:flex!important;align-items:center!important;gap:14px!important;min-height:54px!important;
+      }
+      .pz-pdf-logo{width:52px!important;height:52px!important;object-fit:contain!important}
+      .pz-pdf-brand-text{
+        display:flex!important;flex-direction:column!important;justify-content:center!important;
+        line-height:.94!important;font-size:20px!important;font-weight:800!important;
+        color:#173f21!important;letter-spacing:.15px!important;
+      }
+       .pz-pdf-rule{
+        display:block!important;width:100%!important;height:0!important;
+        border:0!important;border-top:2px solid #173f21!important;
+        margin:10px 0 9px!important;
+      }
+      .pz-pdf-document-title{
+        font-size:12px!important;line-height:1.2!important;font-weight:800!important;color:#173f21!important;
+      }
+
+      /* SEKCE */
+      #pz-pdf-delivery-section{display:block!important;margin:0 0 22px!important}
+      .pz-pdf-items-heading{display:block!important;margin:0 0 12px!important}
+      .pz-pdf-section-title{
+        font-size:10px!important;line-height:1.2!important;font-weight:800!important;color:#173f21!important;margin:0!important;
+      }
+      .pz-pdf-section-line{
+        display:block!important;width:100%!important;height:0!important;
+        border:0!important;border-top:1.5px solid #173f21!important;
+        margin:5px 0 0!important;
+      }
+
+      /* RÁMEČKY */
+      .pz-pdf-grid{
+        display:grid!important;grid-template-columns:1fr 1fr!important;
+        gap:4px 6px!important;margin-top:8px!important;
+      }
+      .pz-pdf-box{
+        border:1px solid #d1d1d1!important;min-height:42px!important;
+        padding:7px 10px 8px!important;box-sizing:border-box!important;
+        background:#fff!important;page-break-inside:avoid!important;
+      }
+      .pz-pdf-box-wide{grid-column:1/-1!important}
+      .pz-pdf-box span{
+        display:block!important;margin:0 0 4px!important;font-size:6.5px!important;
+        line-height:1.1!important;font-weight:700!important;color:#365d3e!important;text-transform:uppercase!important;
+      }
+      .pz-pdf-box strong{
+        display:block!important;margin:0!important;font-size:9.5px!important;
+        line-height:1.28!important;font-weight:500!important;color:#171717!important;overflow-wrap:anywhere!important;
+      }
+
+      /* POLOŽKY */
+      #pz-cart-list{display:block!important}
+      .pz-pdf-item{
+        border:0!important;border-radius:0!important;padding:0!important;
+        margin:0 0 14px!important;background:#fff!important;box-shadow:none!important;
+        page-break-inside:avoid!important;
+      }
+      .pz-pdf-item-content{display:block!important}
+      .pz-pdf-item-number{
+        margin:0 0 6px!important;font-size:10px!important;line-height:1.2!important;
+        font-weight:800!important;color:#173f21!important;
+      }
+
+      /* CELKOVÝ SOUHRN */
+      .pz-summary-print{
+        display:block!important;border:0!important;border-radius:0!important;background:#fff!important;
+        padding:0!important;margin:18px 0 0!important;page-break-inside:avoid!important;
+      }
+      .pz-summary-print:before{
+        content:"CELKOVÝ SOUHRN";display:block!important;font-size:10px!important;
+        line-height:1.2!important;font-weight:800!important;color:#173f21!important;
+        border-bottom:1.5px solid #173f21!important;padding-bottom:5px!important;margin-bottom:8px!important;
+      }
+      .pz-summary-print .pz-detail-grid{
+        display:grid!important;grid-template-columns:1fr 1fr!important;gap:4px 6px!important;
+      }
+      .pz-summary-print .pz-detail{
+        border:1px solid #d1d1d1!important;border-radius:0!important;background:#fff!important;
+        padding:7px 10px 8px!important;min-height:42px!important;
+      }
+      .pz-summary-print .pz-detail span{
+        display:block!important;margin:0 0 4px!important;font-size:6.5px!important;
+        line-height:1.1!important;font-weight:700!important;color:#365d3e!important;
+      }
+      .pz-summary-print .pz-detail strong{
+        display:block!important;font-size:9.5px!important;line-height:1.28!important;
+        font-weight:500!important;color:#171717!important;
+      }
+      .pz-summary-print > p{display:none!important}
+
+      /* PATIČKA */
+      #pz-cart-modal .pz-modal-body:after{
+        content:"Pila Železnice\A +420 773 214 618\A info@pilazeleznice.cz";
+        white-space:pre-line!important;
+        display:block!important;visibility:visible!important;
+        width:100%!important;box-sizing:border-box!important;
+        text-align:center!important;color:#111!important;
+        border-top:1.5px solid #173f21!important;
+        margin:16px 0 0!important;padding:7px 0 0!important;
+        font-size:7.5px!important;line-height:1.45!important;font-weight:500!important;
+      }
+    }
+
+
+    /* =====================================================
+       RESPONZIVNÍ ROZLOŽENÍ PRO WEBNODE
+       Pouze rozložení – bez zásahu do výpočtů a funkcí.
+       ===================================================== */
+
+    /* Konfigurátor se nikdy nesmí roztahovat mimo dostupnou šířku stránky. */
+    #pz-app,
+    #pz-app *{
+      box-sizing:border-box;
+    }
+    #pz-app{
+      width:100%;
+      max-width:100%;
+      min-width:0;
+    }
+    #pz-app .pz-shell,
+    #pz-app .pz-card,
+    #pz-app .pz-main,
+    #pz-app .pz-config,
+    #pz-app .pz-preview{
+      min-width:0;
+      max-width:100%;
+    }
+
+    /* Na užším desktopu / tabletu na šířku necháme dva sloupce,
+       ale pravý panel bude užší a levý se pružně přizpůsobí. */
+    @media (max-width: 1280px){
+      #pz-app .pz-main{
+        grid-template-columns:minmax(0,1fr) minmax(280px,34%);
+        gap:18px;
+      }
+      #pz-app .pz-card{
+        padding-left:18px;
+        padding-right:18px;
+      }
+      #pz-app .pz-wood-grid,
+      #pz-app .pz-product-grid{
+        gap:10px;
+      }
+      #pz-app .pz-option{
+        min-width:0;
+      }
+    }
+
+    /* Jakmile už dva sloupce nedávají smysl, Živý přehled + 3D
+       se přesunou pod konfiguraci v plné šířce. */
+    @media (max-width: 1050px){
+      #pz-app .pz-main{
+        grid-template-columns:minmax(0,1fr);
+      }
+      #pz-app .pz-preview{
+        width:100%;
+      }
+      #pz-app .pz-visualizer{
+        width:100%;
+      }
+      #pz-app .pz-3d-stage{
+        height:300px;
+      }
+    }
+
+    /* Tablet / menší šířka vloženého obsahu. */
+    @media (max-width: 820px){
+      #pz-app .pz-card{
+        padding-left:14px;
+        padding-right:14px;
+      }
+      #pz-app .pz-wood-grid{
+        grid-template-columns:repeat(2,minmax(0,1fr));
+      }
+      #pz-app .pz-product-grid{
+        grid-template-columns:repeat(2,minmax(0,1fr));
+      }
+      #pz-app .pz-param-grid{
+        grid-template-columns:minmax(0,1fr);
+      }
+      #pz-app .pz-services-grid{
+        grid-template-columns:repeat(2,minmax(0,1fr));
+      }
+      #pz-app .pz-summary-grid{
+        grid-template-columns:repeat(2,minmax(0,1fr));
+      }
+      #pz-app .pz-3d-stage{
+        height:280px;
+      }
+    }
+
+    /* Telefon – všechno do jednoho pohodlného sloupce. */
+    @media (max-width: 560px){
+      #pz-app .pz-card{
+        padding-left:10px;
+        padding-right:10px;
+      }
+      #pz-app .pz-wood-grid,
+      #pz-app .pz-product-grid,
+      #pz-app .pz-services-grid,
+      #pz-app .pz-summary-grid{
+        grid-template-columns:minmax(0,1fr);
+      }
+      #pz-app .pz-3d-stage{
+        height:235px;
+      }
+      #pz-app .pz-visualizer-head{
+        align-items:center;
+      }
+    }
+
+
+    /* =====================================================
+       DOLADĚNÍ ROZLOŽENÍ – 2 VOLBY VEDLE SEBE + GDPR
+       Pouze CSS, bez zásahu do funkcí kalkulátoru.
+       ===================================================== */
+
+    /* V prostoru Webnode zobrazujeme druh dřeva i sortiment
+       přehledně po dvou kartách vedle sebe. */
+    @media (max-width: 1280px){
+      #pz-app .pz-wood-grid,
+      #pz-app .pz-product-grid{
+        grid-template-columns:repeat(2,minmax(0,1fr)) !important;
+      }
+    }
+
+    /* Na telefonu zůstávají dvě volby vedle sebe, dokud se pohodlně vejdou. */
+    @media (max-width: 560px){
+      #pz-app .pz-wood-grid,
+      #pz-app .pz-product-grid{
+        grid-template-columns:repeat(2,minmax(0,1fr)) !important;
+        gap:8px;
+      }
+      #pz-app .pz-wood-grid .pz-option,
+      #pz-app .pz-product-grid .pz-option{
+        min-width:0;
+        width:100%;
+        padding-left:12px;
+        padding-right:12px;
+      }
+    }
+
+    /* GDPR – checkbox držíme přímo u textu, bez roztažení řádku. */
+    #pz-app .pz-consent{
+      display:flex !important;
+      align-items:flex-start !important;
+      justify-content:flex-start !important;
+      gap:10px !important;
+      width:100%;
+    }
+    #pz-app .pz-consent input[type="checkbox"]{
+      flex:0 0 18px !important;
+      width:18px !important;
+      height:18px !important;
+      min-width:18px !important;
+      margin:2px 0 0 0 !important;
+      padding:0 !important;
+    }
+    #pz-app .pz-consent span,
+    #pz-app .pz-consent label{
+      flex:0 1 auto !important;
+      width:auto !important;
+      margin:0 !important;
+      text-align:left !important;
+    }
+
+
+    /* =====================================================
+       FINÁLNÍ ROZLOŽENÍ VOLEB + OPRAVA GDPR CHECKBOXU
+       Pouze CSS, bez zásahu do funkcí kalkulátoru.
+       ===================================================== */
+
+    /* DRUH DŘEVA:
+       1. řádek: Smrk | Modřín | Dub
+       2. řádek: Červený dub | Borovice
+    */
+    #pz-app #pz-materials{
+      display:grid !important;
+      grid-template-columns:repeat(3,minmax(0,1fr)) !important;
+      gap:10px !important;
+    }
+
+    /* SORTIMENT:
+       1. řádek: 3 položky
+       2. řádek: 3 položky
+       3. řádek: 2 položky
+    */
+    #pz-app #pz-products{
+      display:grid !important;
+      grid-template-columns:repeat(3,minmax(0,1fr)) !important;
+      gap:10px !important;
+    }
+
+    #pz-app #pz-materials .pz-card-choice,
+    #pz-app #pz-products .pz-card-choice{
+      min-width:0 !important;
+      width:100% !important;
+    }
+
+    /* GDPR checkbox přímo u textu */
+    #pz-app .pz-delivery-consent{
+      display:flex !important;
+      align-items:flex-start !important;
+      justify-content:flex-start !important;
+      gap:9px !important;
+      width:100% !important;
+      text-align:left !important;
+    }
+
+    #pz-app .pz-delivery-consent input[type="checkbox"]{
+      flex:0 0 18px !important;
+      width:18px !important;
+      height:18px !important;
+      min-width:18px !important;
+      margin:2px 0 0 0 !important;
+      padding:0 !important;
+    }
+
+    #pz-app .pz-delivery-consent span{
+      flex:0 1 auto !important;
+      width:auto !important;
+      margin:0 !important;
+      padding:0 !important;
+      text-align:left !important;
+      line-height:1.45 !important;
+    }
+
+    @media (max-width: 900px){
+      #pz-app #pz-materials,
+      #pz-app #pz-products{
+        grid-template-columns:repeat(2,minmax(0,1fr)) !important;
+      }
+    }
+
+    @media (max-width: 560px){
+      #pz-app #pz-materials,
+      #pz-app #pz-products{
+        grid-template-columns:minmax(0,1fr) !important;
+      }
+    }
+
+
+    /* =====================================================
+       WEBNODE LEVÝ PANEL – KOŠÍK A POTVRZOVACÍ HLÁŠKY
+       Pouze pozicování/responzivita. Logika kalkulátoru beze změny.
+       ===================================================== */
+
+    /*
+      Na širokém zobrazení má Webnode vlevo pevný panel přibližně 337 px.
+      Overlay proto začíná až za ním a košík i toast se centrují jen
+      v reálné pracovní ploše stránky.
+    */
+    @media (min-width: 1051px){
+      #pz-app .pz-modal{
+        left:337px !important;
+        right:0 !important;
+        width:auto !important;
+      }
+
+      #pz-app #pz-cart-modal .pz-modal-box{
+        width:min(1080px,calc(100% - 36px)) !important;
+        max-width:calc(100% - 36px) !important;
+      }
+
+      #pz-app .pz-toast{
+        left:337px !important;
+        right:0 !important;
+        width:auto !important;
+      }
+
+      #pz-app .pz-toast::after{
+        width:min(560px,calc(100% - 40px)) !important;
+      }
+    }
+
+    /*
+      Na menším tabletu už levý desktopový panel nepovažujeme za pevný.
+      Overlay využije celou šířku displeje.
+    */
+    @media (max-width: 1050px){
+      #pz-app .pz-modal,
+      #pz-app .pz-toast{
+        left:0 !important;
+        right:0 !important;
+        width:auto !important;
+      }
+
+      #pz-app #pz-cart-modal .pz-modal-box{
+        width:min(960px,calc(100vw - 24px)) !important;
+        max-width:calc(100vw - 24px) !important;
+      }
+    }
+
+    /* Mobil – malé bezpečné okraje. */
+    @media (max-width: 620px){
+      #pz-app #pz-cart-modal .pz-modal-box{
+        width:calc(100vw - 16px) !important;
+        max-width:calc(100vw - 16px) !important;
+      }
+
+      #pz-app .pz-toast::after{
+        width:calc(100vw - 32px) !important;
+      }
+    }
+
+
+    /* =====================================================
+       OPRAVA TISKU NA WEBNODE – IZOLOVANÝ TISKOVÝ OBSAH
+       Při tisku je jediným prvkem stránky samostatná kopie souhrnu.
+       Tím se do PDF nedostane menu Webnode, widgety ani prázdné stránky.
+       ===================================================== */
+    #pz-print-isolation{
+      display:none;
+    }
+
+    @media print{
+      html,body{
+        margin:0!important;
+        padding:0!important;
+        width:100%!important;
+        min-height:0!important;
+        height:auto!important;
+        overflow:visible!important;
+        background:#fff!important;
+      }
+
+      /* Skryjeme celé Webnode DOM včetně jeho layoutového prostoru. */
+      body > *{
+        display:none!important;
+      }
+
+      /* Jediný skutečně tisknutelný prvek. */
+      body > #pz-print-isolation{
+        display:block!important;
+        position:static!important;
+        width:100%!important;
+        max-width:none!important;
+        min-height:0!important;
+        height:auto!important;
+        margin:0!important;
+        padding:0!important;
+        overflow:visible!important;
+        visibility:visible!important;
+        background:#fff!important;
+      }
+
+      #pz-print-isolation,
+      #pz-print-isolation *{
+        visibility:visible!important;
+      }
+
+      #pz-print-isolation #pz-cart-modal{
+        display:block!important;
+        position:static!important;
+        inset:auto!important;
+        width:100%!important;
+        height:auto!important;
+        min-height:0!important;
+        margin:0!important;
+        padding:0!important;
+        overflow:visible!important;
+        background:#fff!important;
+      }
+
+      #pz-print-isolation #pz-cart-modal .pz-modal-box{
+        display:block!important;
+        position:static!important;
+        width:100%!important;
+        max-width:none!important;
+        max-height:none!important;
+        height:auto!important;
+        min-height:0!important;
+        margin:0!important;
+        padding:0!important;
+        overflow:visible!important;
+        border:0!important;
+        border-radius:0!important;
+        box-shadow:none!important;
+        background:#fff!important;
+      }
+
+      #pz-print-isolation #pz-cart-modal .pz-modal-body{
+        display:block!important;
+        width:100%!important;
+        height:auto!important;
+        min-height:0!important;
+        margin:0!important;
+        padding:0!important;
+        overflow:visible!important;
+      }
+    }
+
+
+    /* =====================================================
+       WEBNODE LEVÝ PANEL – VELKÝ 3D NÁHLED
+       Pouze pozice/rozměry modálního 3D okna.
+       Samotný 3D model, výpočty a tisk zůstávají beze změny.
+       ===================================================== */
+
+    /* Desktop / široký tablet:
+       Webnode vlevo zabírá přibližně 337 px. 3D overlay proto
+       začíná až za tímto panelem a celý modal se centruje pouze
+       v pravé pracovní části stránky. */
+    @media (min-width: 1051px){
+      #pz-app .pz-3d-modal{
+        left:337px !important;
+        right:0 !important;
+        width:auto !important;
+        padding:18px !important;
+      }
+
+      #pz-app .pz-3d-modal-box{
+        width:min(1040px,calc(100% - 36px)) !important;
+        max-width:calc(100% - 36px) !important;
+        margin-left:auto !important;
+        margin-right:auto !important;
+      }
+    }
+
+    /* Tablet / mobil:
+       jakmile desktopový levý panel přestává být relevantní,
+       3D modal opět využívá celý dostupný displej. */
+    @media (max-width: 1050px){
+      #pz-app .pz-3d-modal{
+        left:0 !important;
+        right:0 !important;
+        width:auto !important;
+      }
+
+      #pz-app .pz-3d-modal-box{
+        width:min(1040px,calc(100vw - 24px)) !important;
+        max-width:calc(100vw - 24px) !important;
+        margin-left:auto !important;
+        margin-right:auto !important;
+      }
+    }
+
+    @media (max-width: 620px){
+      #pz-app .pz-3d-modal{
+        padding:8px !important;
+      }
+
+      #pz-app .pz-3d-modal-box{
+        width:calc(100vw - 16px) !important;
+        max-width:calc(100vw - 16px) !important;
+      }
+    }
+
+
+    /* =====================================================
+       V31 – KOŠÍK POD HORNÍM PRUHEM WEBNODE
+       Pouze poloha a výška košíku. Ostatní modaly beze změny.
+       ===================================================== */
+
+    /* Tablet na šířku / užší desktop */
+    @media (min-width:621px) and (max-width:1050px){
+      #pz-app #pz-cart-modal{
+        top:64px !important;
+        bottom:12px !important;
+        height:auto !important;
+        align-items:flex-start !important;
+        padding-top:10px !important;
+        padding-bottom:10px !important;
+      }
+
+      #pz-app #pz-cart-modal .pz-modal-box{
+        max-height:calc(100vh - 96px) !important;
+      }
+    }
+
+    /* Telefon – rezerva pro vyšší mobilní hlavičku Webnode */
+    @media (max-width:620px){
+      #pz-app #pz-cart-modal{
+        top:112px !important;
+        bottom:8px !important;
+        height:auto !important;
+        align-items:flex-start !important;
+        padding-top:6px !important;
+        padding-bottom:6px !important;
+      }
+
+      #pz-app #pz-cart-modal .pz-modal-box{
+        max-height:calc(100vh - 126px) !important;
+        border-radius:20px !important;
+      }
+    }
+
+
+    /* =====================================================
+       V33 – KOŠÍK JEŠTĚ NÍŽ POD HORNÍM PRUHEM WEBNODE
+       Pouze poloha a dostupná výška košíku.
+       ===================================================== */
+
+    /* Tablet na šířku / užší desktop – větší bezpečný odstup od horního pruhu */
+    @media (min-width:621px) and (max-width:1050px){
+      #pz-app #pz-cart-modal{
+        top:96px !important;
+        bottom:12px !important;
+        height:auto !important;
+        align-items:flex-start !important;
+        padding-top:10px !important;
+        padding-bottom:10px !important;
+      }
+
+      #pz-app #pz-cart-modal .pz-modal-box{
+        max-height:calc(100vh - 128px) !important;
+      }
+    }
+
+    /* Telefon – košík začíná bezpečně až pod mobilní hlavičkou */
+    @media (max-width:620px){
+      #pz-app #pz-cart-modal{
+        top:148px !important;
+        bottom:8px !important;
+        height:auto !important;
+        align-items:flex-start !important;
+        padding-top:6px !important;
+        padding-bottom:6px !important;
+      }
+
+      #pz-app #pz-cart-modal .pz-modal-box{
+        max-height:calc(100vh - 162px) !important;
+      }
+    }
+
+
+    /* =====================================================
+       V34 – STABILNÍ KOŠÍK NA MOBILU A TABLETU
+       Košík má vlastní pevnou bezpečnou oblast a roluje
+       pouze jeho vnitřní obsah. Webnode scroll ho neposouvá.
+       ===================================================== */
+
+    @media (min-width:621px) and (max-width:1050px){
+      #pz-app #pz-cart-modal{
+        position:fixed !important;
+        inset:96px 0 12px 0 !important;
+        top:96px !important;
+        right:0 !important;
+        bottom:12px !important;
+        left:0 !important;
+        width:auto !important;
+        height:auto !important;
+        min-height:0 !important;
+        padding:10px 12px !important;
+        box-sizing:border-box !important;
+        align-items:stretch !important;
+        justify-content:center !important;
+        overflow:hidden !important;
+        overscroll-behavior:contain !important;
+      }
+
+      #pz-app #pz-cart-modal .pz-modal-box{
+        position:relative !important;
+        top:auto !important;
+        left:auto !important;
+        right:auto !important;
+        bottom:auto !important;
+        width:min(100%, 1100px) !important;
+        height:100% !important;
+        max-height:none !important;
+        min-height:0 !important;
+        margin:0 auto !important;
+        display:flex !important;
+        flex-direction:column !important;
+        overflow:hidden !important;
+      }
+
+      #pz-app #pz-cart-modal .pz-modal-head{
+        flex:0 0 auto !important;
+        position:relative !important;
+        top:auto !important;
+        z-index:5 !important;
+        background:#fff !important;
+      }
+
+      #pz-app #pz-cart-modal .pz-modal-body{
+        flex:1 1 auto !important;
+        min-height:0 !important;
+        max-height:none !important;
+        overflow-y:auto !important;
+        overflow-x:hidden !important;
+        -webkit-overflow-scrolling:touch !important;
+        overscroll-behavior:contain !important;
+      }
+    }
+
+    @media (max-width:620px){
+      #pz-app #pz-cart-modal{
+        position:fixed !important;
+        inset:148px 0 8px 0 !important;
+        top:148px !important;
+        right:0 !important;
+        bottom:8px !important;
+        left:0 !important;
+        width:auto !important;
+        height:auto !important;
+        min-height:0 !important;
+        padding:6px 8px !important;
+        box-sizing:border-box !important;
+        align-items:stretch !important;
+        justify-content:center !important;
+        overflow:hidden !important;
+        overscroll-behavior:contain !important;
+      }
+
+      #pz-app #pz-cart-modal .pz-modal-box{
+        position:relative !important;
+        top:auto !important;
+        left:auto !important;
+        right:auto !important;
+        bottom:auto !important;
+        width:100% !important;
+        height:100% !important;
+        max-height:none !important;
+        min-height:0 !important;
+        margin:0 !important;
+        display:flex !important;
+        flex-direction:column !important;
+        overflow:hidden !important;
+        border-radius:20px !important;
+      }
+
+      #pz-app #pz-cart-modal .pz-modal-head{
+        flex:0 0 auto !important;
+        position:relative !important;
+        top:auto !important;
+        z-index:5 !important;
+        background:#fff !important;
+      }
+
+      #pz-app #pz-cart-modal .pz-modal-body{
+        flex:1 1 auto !important;
+        min-height:0 !important;
+        max-height:none !important;
+        overflow-y:auto !important;
+        overflow-x:hidden !important;
+        -webkit-overflow-scrolling:touch !important;
+        overscroll-behavior:contain !important;
+      }
+    }
+
+</style>
+
+
+
+
+
+
+
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+
+
+
+
+
+
+
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js">
+</script>
+
+
+
+
+
+
+
+
+  <div class="pz-shell">
+    <header class="pz-top">
+      <div class="pz-brand">
+        <img class="pz-logo" src="https://raw.githubusercontent.com/pilazeleznice-coder/pilazeleznice-assets/main/B%C3%ADl%C3%A9%20zmen%C5%A1en%C3%A9%20logo.png" alt="Pila Železnice">
+        <div>
+          <h1>Konfigurátor řeziva</h1>
+          <p>Orientační kalkulace řeziva a služeb</p>
+        </div>
+      </div>
+      <button class="pz-cart-btn" type="button" id="pz-open-cart" aria-label="Otevřít celkový souhrn kalkulace">
+        <span class="pz-cart-btn-title">Celkový souhrn kalkulace</span>
+        <span class="pz-cart-btn-meta">
+          <span class="pz-cart-btn-count">Položky <span class="pz-badge" id="pz-cart-count">0</span></span>
+          <span class="pz-cart-btn-total" id="pz-cart-total-top">0 Kč s DPH</span>
+        </span>
+      </button>
+        </header>
+
+
+
+
+
+
+
+
+    <section class="pz-delivery" id="pz-delivery-section">
+      <!-- Sbalený stav dopravy -->
+<div class="pz-delivery-collapsed" id="pz-delivery-collapsed" style="display:none;">
+  <div>
+    <strong>✓ Doprava započítána</strong>
+    <div id="pz-delivery-collapsed-address"></div>
+  </div>
+
+
+
+
+
+
+
+
+  <button type="button" id="pz-delivery-edit">
+    Upravit
+  </button>
+</div>
+      <div class="pz-delivery-head">
+        <div class="pz-delivery-title">
+          <div class="pz-delivery-icon">D</div>
+
+
+
+
+
+
+
+
+          <div>
+            <h2>Doprava</h2>
+            <p>Chcete zajistit dopravu řeziva na cílovou adresu?</p>
+          </div>
+        </div>
+
+
+
+
+
+
+
+
+        <div class="pz-delivery-choice">
+          <button type="button" id="pz-delivery-yes">Ano</button>
+          <button type="button" id="pz-delivery-no">Ne</button>
+        </div>
+      </div>
+
+
+
+
+
+
+
+
+      <div class="pz-delivery-body" id="pz-delivery-body">
+        <div class="pz-delivery-form">
+          
+
+
+
+
+
+
+
+
+          <div class="pz-delivery-fields">
+            <div class="pz-field">
+  <label for="pz-delivery-street">Ulice a číslo</label>
+
+
+
+
+
+
+
+
+  <div class="pz-suggest">
+  <div class="pz-input-check-wrap">
+  <input id="pz-delivery-street" type="text" placeholder="Začněte psát ulici a číslo" autocomplete="off">
+  <span class="pz-field-check">✓</span>
+</div>
+    <div class="pz-suggestions" id="pz-delivery-suggestions"></div>
+
+
+
+
+
+
+
+
+    <div class="pz-status" id="pz-delivery-status"></div>
+  </div>
+</div>
+
+
+
+
+
+
+
+
+            <div class="pz-field">
+              <label for="pz-delivery-city">Město</label>
+             <div class="pz-input-check-wrap">
+  <input id="pz-delivery-city" type="text" placeholder="Např. Praha" "="">
+  <span class="pz-field-check">✓</span>
+</div> 
+<div class="pz-suggestions" id="pz-delivery-city-suggestions"></div>           
+</div>
+
+
+
+
+
+
+
+
+            <div class="pz-field">
+              <label for="pz-delivery-postcode">PSČ</label>
+              <div class="pz-input-check-wrap">
+  <input id="pz-delivery-postcode" type="text" placeholder="Např. 120 00">
+  <span class="pz-field-check">✓</span>
+</div>
+<div class="pz-suggestions" id="pz-delivery-postcode-suggestions"></div>
+            </div>
+
+
+
+
+
+
+
+
+            <div class="pz-field">
+              <label for="pz-delivery-type">Typ dopravy</label>
+              <select id="pz-delivery-type">
+                <option value="">Vyberte typ dopravy</option>
+                <option value="car">Auto – do 5 m³</option>
+                <option value="small-trailer">Traktor + malý vlek – 5 až 10 m³</option>
+                <option value="small-trailer-unloading">Traktor + malý vlek + skládání – 5 až 10 m³</option>
+                <option value="large-trailer">Traktor + velký vlek – nad 10 m³</option>
+                <option value="large-trailer-unloading">Traktor + velký vlek + skládání – nad 10 m³</option>
+              </select>
+            </div>
+
+
+
+
+
+
+
+
+            <div class="pz-field">
+              <label for="pz-delivery-km">Počet kilometrů</label>
+              <input id="pz-delivery-km" type="text" value="0 km" disabled="">
+            </div>
+
+
+
+
+
+
+
+
+            <div class="pz-field">
+              <label for="pz-delivery-rate">Cena za kilometr</label>
+              <input id="pz-delivery-rate" type="text" value="0 Kč/km" disabled="">
+            </div>
+          </div>
+
+
+
+
+
+
+
+
+          <div class="pz-delivery-price">
+            <span>Cena dopravy bez DPH</span>
+            <strong id="pz-delivery-price">0 Kč</strong>
+          </div>
+
+
+
+
+
+
+
+
+          <label class="pz-delivery-consent">
+            <input id="pz-delivery-gdpr" type="checkbox">
+            <span>
+  Souhlasím se zpracováním osobních údajů.
+<a href="https://raw.githubusercontent.com/pilazeleznice-coder/documents/main/zasady-ochrany-osobnich-udaju-pila-zeleznice_260727_000453.pdf" download="Zasady-ochrany-osobnich-udaju-Pila-Zeleznice.pdf">
+  (Dokument GDPR)
+</a>
+</span>
+          </label>
+
+
+
+
+
+
+
+
+          <div class="pz-actions">
+            <button class="pz-btn" type="button" id="pz-add-delivery">
+              Přidat dopravu do kalkulace
+            </button>
+          </div>
+        </div>
+
+
+
+
+
+
+
+
+       <div class="pz-delivery-map" id="pz-delivery-map">
+  <div id="pz-route-map"></div>
+</div> 
+      </div>
+    </section>
+
+
+
+
+
+
+
+
+    <main class="pz-main">
+      <section class="pz-panel">
+        <div class="pz-section">
+          <h2>Druh dřeva</h2>
+          <div class="pz-cards" id="pz-materials"></div>
+        </div>
+        <div class="pz-section">
+          <h2>Sortiment</h2>
+          <div class="pz-cards pz-product-cards" id="pz-products"></div>
+        </div>
+        <div class="pz-section">
+          <h2>Parametry</h2>
+          <div class="pz-grid" id="pz-params"></div>
+        </div>
+        <div class="pz-section">
+          <h2>Doplňkové služby</h2>
+          <div class="pz-services" id="pz-services"></div>
+        </div>
+        <div class="pz-actions">
+          <button class="pz-btn" type="button" id="pz-add-btn">Přidat do kalkulace</button>
+          <button class="pz-btn secondary" type="button" id="pz-cancel-edit" style="display:none">Zrušit úpravu</button>
+        </div>
+        <p class="pz-muted" id="pz-edit-info"></p>
+      </section>
+
+
+
+
+
+
+
+
+    <aside class="pz-panel pz-preview">
+  <h2>Živý přehled</h2>
+
+
+
+
+
+
+
+
+<div id="pz-preview-content"></div>
+
+
+
+
+
+
+
+
+  <p class="pz-muted" style="margin-top:14px">
+    Výpočet je orientační. Přesná cena bude potvrzena po kontrole poptávky.
+  </p>
+
+  <section class="pz-visualizer" id="pz-visualizer">
+    <div class="pz-visualizer-head">
+      <h2>3D náhled řeziva</h2>
+      <button class="pz-3d-expand" type="button" id="pz-3d-expand" aria-label="Zvětšit 3D náhled" title="Zvětšit 3D náhled">⛶</button>
+    </div>
+    <div class="pz-3d-stage" id="pz-3d-stage-small">
+      <canvas id="pz-3d-canvas" aria-label="Interaktivní 3D náhled řeziva"></canvas>
+      <div class="pz-3d-message" id="pz-3d-message">
+        <div class="pz-3d-message-inner">
+          <strong>3D vizualizace není k dispozici</strong>
+          <span id="pz-3d-message-text"></span>
+        </div>
+      </div>
+    </div>
+    <div class="pz-3d-legend" id="pz-3d-legend">
+      <span class="pz-3d-dash-sample"></span><strong>Neohraněná hrana</strong><br>
+      Čárkovaná linie označuje přirozenou neoříznutou podélnou hranu fošny. Tvar a šířka zobrazeného kusu jsou pouze orientační.
+    </div>
+  </section>
+</aside>
+    </main>
+
+
+
+
+
+
+
+
+    <section class="pz-summary-bar">
+      <div class="pz-summary-item"><span>Položek</span><strong id="pz-sum-count">0</strong></div>
+      <div class="pz-summary-item"><span>Celkový objem</span><strong id="pz-sum-volume">0 m³</strong></div>
+      <div class="pz-summary-item"><span>Bez DPH</span><strong id="pz-sum-without">0 Kč</strong></div>
+      <div class="pz-summary-item"><span>DPH</span><strong id="pz-sum-vat">0 Kč</strong></div>
+      <div class="pz-summary-item"><span>Celkem s DPH</span><strong id="pz-sum-with">0 Kč</strong></div>
+    </section>
+  </div>
+
+
+
+
+
+
+
+
+  <div class="pz-3d-modal" id="pz-3d-modal" aria-hidden="true">
+    <div class="pz-3d-modal-box" role="dialog" aria-modal="true" aria-labelledby="pz-3d-modal-title">
+      <div class="pz-3d-modal-head">
+        <h2 id="pz-3d-modal-title">3D náhled řeziva</h2>
+        <button class="pz-3d-close" type="button" id="pz-3d-close" aria-label="Zavřít 3D náhled">×</button>
+      </div>
+      <div class="pz-3d-modal-body">
+        <div class="pz-3d-stage pz-3d-modal-stage" id="pz-3d-stage-large">
+          <canvas id="pz-3d-canvas-large" aria-label="Zvětšený interaktivní 3D náhled řeziva"></canvas>
+          <div class="pz-3d-message" id="pz-3d-message-large">
+            <div class="pz-3d-message-inner">
+              <strong>3D vizualizace není k dispozici</strong>
+              <span id="pz-3d-message-text-large"></span>
+            </div>
+          </div>
+        </div>
+        <div class="pz-3d-toolbar">
+          <div class="pz-3d-help">Tažením model otočíte • kolečkem nebo dvěma prsty přiblížíte</div>
+          <button class="pz-3d-reset" type="button" id="pz-3d-reset">↻ Výchozí pohled</button>
+        </div>
+        <div class="pz-3d-legend" id="pz-3d-legend-large">
+          <span class="pz-3d-dash-sample"></span><strong>Neohraněná hrana</strong><br>
+          Čárkovaná linie označuje přirozenou neoříznutou podélnou hranu fošny. Tvar a šířka zobrazeného kusu jsou pouze orientační.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="pz-modal" id="pz-cart-modal" aria-hidden="true">
+    <div class="pz-modal-box">
+      <div class="pz-modal-head">
+        <h2>Souhrn kalkulace</h2>
+        <button class="pz-btn secondary" type="button" id="pz-close-cart">Zavřít</button>
+      </div>
+      <div class="pz-modal-body">
+        <div class="pz-print-only pz-pdf-head">
+          <div class="pz-pdf-brand">
+            <img class="pz-pdf-logo" src="https://d626f3e446.clvaw-cdnwnd.com/65d0836dd6c05632a75220caf8b1be08/200000205-67fea67fed/700/Logo%20fin%C3%A1le%20o%C5%99%C3%ADznut%C3%A9%20tmav%C3%A9%C3%A9%C3%A9-2.webp?ph=d626f3e446" alt="Pila Železnice">
+            <div class="pz-pdf-brand-text"><strong>PILA</strong><strong>ŽELEZNICE</strong></div>
+          </div>
+          <div class="pz-pdf-rule"></div>
+          <div class="pz-pdf-document-title">Souhrn kalkulace</div>
+        </div>
+
+        <div class="pz-print-only" id="pz-pdf-delivery-section">
+          <div class="pz-pdf-section-title">DOPRAVA</div>
+          <div class="pz-pdf-section-line"></div>
+          <div class="pz-pdf-grid" id="pz-pdf-delivery-grid"></div>
+        </div>
+
+        <div class="pz-print-only pz-pdf-items-heading">
+          <div class="pz-pdf-section-title">POLOŽKY KALKULACE</div>
+          <div class="pz-pdf-section-line"></div>
+        </div>
+
+
+
+
+
+
+
+
+        <div id="pz-cart-list"></div>
+
+
+
+
+
+
+
+
+        <div class="pz-transport pz-summary-print">
+          <h2>Celkový souhrn</h2>
+          <div class="pz-detail-grid">
+            <div class="pz-detail"><span>Objem</span><strong id="pz-modal-volume">0 m³</strong></div>
+            <div class="pz-detail"><span>Řezivo bez DPH</span><strong id="pz-modal-wood">0 Kč</strong></div>
+            <div class="pz-detail"><span>Služby bez DPH</span><strong id="pz-modal-services">0 Kč</strong></div>
+            <div class="pz-detail"><span>Doprava bez DPH</span><strong id="pz-modal-transport">0 Kč</strong></div>
+            <div class="pz-detail"><span>Celkem s DPH</span><strong id="pz-modal-total">0 Kč</strong></div>
+          </div>
+          <p class="pz-muted" style="margin-top:12px">Výpočet je orientační. Přesná cena bude potvrzena po kontrole poptávky.</p>
+        </div>
+
+
+
+
+
+
+
+
+        <div class="pz-actions">
+          <button class="pz-btn dark" type="button" id="pz-print">Vytisknout / uložit jako PDF</button>
+          <button class="pz-btn" type="button" id="pz-inquiry">Pokračovat k poptávce</button>
+        </div>
+
+        <div class="pz-important-note" role="note" aria-label="Důležité informace k odeslání poptávky">
+          <div class="pz-important-note-icon" aria-hidden="true">!</div>
+          <div class="pz-important-note-text">
+            <strong>Důležité – chcete tuto kalkulaci poptat?</strong>
+            <p>
+              Nejprve si kalkulaci uložte pomocí tlačítka
+              <strong>„Vytisknout / uložit jako PDF“</strong>.
+              Poté klikněte na <strong>„Pokračovat k poptávce“</strong>
+              a uložený PDF dokument přiložte v poptávkovém formuláři
+              v části <strong>„Vybrat soubor“</strong>.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+
+
+
+
+
+
+  <div class="pz-toast" id="pz-toast">Položka byla přidána do kalkulace</div>
+
+
+
+
+
+
+
+
+  <script>
+  (function(){
+    "use strict";
+
+
+
+
+
+
+
+
+    /* =====================================================
+       KONFIGURACE – UPRAVUJTE HLAVNĚ TADY
+    ===================================================== */
+    const ORS_API_KEY = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6ImEyNTdlN2Q2ZWY0ZDQ4MTk4NjE1MTlkMzQ1ZDQ5ZWE2IiwiaCI6Im11cm11cjY0In0=";
+    const START_COORDS = [15.3751174, 50.4625223];
+
+
+
+
+
+
+
+
+    const CONFIG = {
+      vat: 0.21,
+      inquiryUrl: "https://www.pilazeleznice.cz/poptat/",
+      transport: { below5: 50, from5: 100 },
+      services: {
+        planing: { label:"Hoblování", type:"choice", unit:"m3", choices:[
+          { id:"1", label:"1 strana", price:500 },
+          { id:"2", label:"2 strany", price:1000 },
+          { id:"3", label:"3 strany", price:1500 },
+          { id:"4", label:"4 strany", price:2000 }
+        ]},
+        impregnation: { label:"Impregnace", type:"toggle", unit:"m3", price:500 },
+        cut: { label:"Zaříznout na míru", type:"toggle", unit:"m3", price:500 },
+        edge: { label:"Sražení hran", type:"choice", unit:"m3", choices:[
+          { id:"1", label:"1 plocha", price:500 },
+          { id:"2", label:"2 plochy", price:1000 }
+        ]}
+      },
+      materials: {
+        smrk: { label:"Smrk", products:{
+          tramy:{label:"Trámy", unit:"m³", priceMode:"m3", basePrice:10500, fields:[
+            {id:"height",label:"Tloušťka",type:"rangeNumber",min:8,max:32,step:2,value:10,unit:"cm"},
+            {id:"width",label:"Šířka",type:"rangeNumber",min:8,max:32,step:2,value:10,unit:"cm"},
+            {id:"length",label:"Délka",type:"rangeNumber",min:1,max:12,step:1,value:4,unit:"m"},
+            {id:"pieces",label:"Kusy",type:"rangeNumber",min:1,max:500,step:1,value:1,unit:"ks"}
+          ]},
+          prkna_stejna:{label:"Prkna stejně široká", unit:"m³", priceMode:"m3", basePrice:7500, fields:[
+            {id:"height",label:"Tloušťka",type:"fixed",value:2.5,unit:"cm"},
+            {id:"width",label:"Šířka",type:"select",value:10,unit:"cm",options:[10,12,16,20,22]},
+            {id:"length",label:"Délka",type:"select",value:4,unit:"m",options:[3,4,5]},
+            {id:"pieces",label:"Kusy",type:"rangeNumber",min:1,max:500,step:1,value:1,unit:"ks"}
+          ]},
+          prkna_ruzne_3_5:{label:"Prkna různě široká 3–5 m", unit:"m³", priceMode:"m3_area", basePrice:7000, fields:[
+            {id:"height",label:"Tloušťka",type:"fixed",value:2.5,unit:"cm"},
+            {id:"widthTotal",label:"Celková šířka",type:"rangeNumber",min:1,max:500,step:1,value:10,unit:"m"},
+            {id:"length",label:"Délka",type:"select",value:4,unit:"m",options:[3,4,5]}
+          ]},
+          prkna_ruzne_08_25:{label:"Prkna různě široká 0,8–2,5 m", unit:"m³", priceMode:"m3_area", basePrice:5500, fields:[
+            {id:"height",label:"Tloušťka",type:"fixed",value:2.5,unit:"cm"},
+            {id:"widthTotal",label:"Celková šířka",type:"rangeNumber",min:1,max:500,step:1,value:10,unit:"m"},
+            {id:"length",label:"Délka",type:"select",value:2,unit:"m",options:[0.8,1.2,1.6,2,2.5]}
+          ]},
+          fosny:{label:"Fošny", unit:"m³", priceMode:"fosny", basePrice:9500, fields:[
+            {id:"edgeType",label:"Provedení",type:"selectText",value:"ohranene",options:[["ohranene","Ohraněné"],["neohranene","Neohraněné"]]},
+            {id:"height",label:"Tloušťka",type:"select",value:5.2,unit:"cm",options:[3.2,4,5.2,6,8]},
+            {id:"widthType",label:"Typ šířky",type:"selectText",value:"same",options:[["same","Stejně široké"],["total","Různě široké"]]},
+            {id:"width",label:"Šířka",type:"rangeNumber",min:10,max:22,step:2,value:12,unit:"cm",showWhen:{widthType:"same"}},
+            {id:"widthTotal",label:"Celková šířka",type:"rangeNumber",min:1,max:500,step:0.5,value:10,unit:"m",showWhen:{widthType:"total"}},
+            {id:"length",label:"Délka",type:"rangeNumber",min:2,max:12,step:1,value:4,unit:"m"},
+            {id:"pieces",label:"Kusy",type:"rangeNumber",min:1,max:500,step:1,value:1,unit:"ks",showWhen:{widthType:"same"}}
+          ], priceBy:{height:{"3.2":8500}}},
+          lat_3_5:{label:"Střešní lať 6 × 4 cm • délka 3–5 m", unit:"bm", priceMode:"m", basePrice:23, fixed:{height:4,width:6}, fields:[
+            {id:"length",label:"Délka",type:"select",value:4,unit:"m",options:[3,4,5]},
+            {id:"pieces",label:"Kusy",type:"rangeNumber",min:1,max:500,step:1,value:1,unit:"ks"}
+          ]},
+          lat_2:{label:"Střešní lať 6 × 4 cm • délka 2 m", unit:"bm", priceMode:"m", basePrice:18, fixed:{height:4,width:6}, fields:[
+            {id:"length",label:"Délka",type:"fixed",value:2,unit:"m"},
+            {id:"pieces",label:"Kusy",type:"rangeNumber",min:1,max:500,step:1,value:1,unit:"ks"}
+          ]},
+          odrezky:{label:"Odřezky", unit:"ks", priceMode:"piece", basePrice:800, services:false, fields:[
+            {id:"scrapType",label:"Druh",type:"selectText",value:"zejt",options:[["zejt","Zejt"],["katr","Katr"]]},
+            {id:"pieces",label:"Kusy",type:"rangeNumber",min:1,max:500,step:1,value:1,unit:"ks"}
+          ]}
+        }},
+        modrin: { label:"Modřín", products:{
+          tramy:{label:"Trámy", unit:"m³", priceMode:"m3", basePrice:11000, fields:[
+            {id:"height",label:"Tloušťka",type:"rangeNumber",min:8,max:32,step:2,value:10,unit:"cm"},
+            {id:"width",label:"Šířka",type:"rangeNumber",min:8,max:32,step:2,value:10,unit:"cm"},
+            {id:"length",label:"Délka",type:"rangeNumber",min:1,max:12,step:1,value:4,unit:"m"},
+            {id:"pieces",label:"Kusy",type:"rangeNumber",min:1,max:500,step:1,value:1,unit:"ks"}
+          ]},
+          prkna_ruzne_3_5:{label:"Prkna různě široká 3–5 m", unit:"m³", priceMode:"m3_area", basePrice:8500, fields:[
+            {id:"height",label:"Tloušťka",type:"fixed",value:2.5,unit:"cm"},
+            {id:"widthTotal",label:"Celková šířka",type:"rangeNumber",min:1,max:500,step:1,value:10,unit:"m"},
+            {id:"length",label:"Délka",type:"select",value:4,unit:"m",options:[3,4,5]}
+          ]},
+          fosny:{label:"Fošny", unit:"m³", priceMode:"fosny", basePrice:11000, fields:[
+            {id:"edgeType",label:"Provedení",type:"selectText",value:"ohranene",options:[["ohranene","Ohraněné"],["neohranene","Neohraněné"]]},
+            {id:"height",label:"Tloušťka",type:"select",value:5.2,unit:"cm",options:[3.2,4,5.2,6,8]},
+            {id:"widthType",label:"Typ šířky",type:"selectText",value:"same",options:[["same","Stejně široké"],["total","Různě široké"]]},
+            {id:"width",label:"Šířka",type:"rangeNumber",min:10,max:22,step:2,value:12,unit:"cm",showWhen:{widthType:"same"}},
+            {id:"widthTotal",label:"Celková šířka",type:"rangeNumber",min:1,max:500,step:0.5,value:10,unit:"m",showWhen:{widthType:"total"}},
+            {id:"length",label:"Délka",type:"rangeNumber",min:2,max:12,step:1,value:4,unit:"m"},
+            {id:"pieces",label:"Kusy",type:"rangeNumber",min:1,max:500,step:1,value:1,unit:"ks",showWhen:{widthType:"same"}}
+          ]}
+        }},
+        dub:{label:"Dub", products:{
+          fosny:{label:"Fošny neohraněné", unit:"m³", priceMode:"m3_area", basePrice:10000, fields:[
+            {id:"height",label:"Tloušťka",type:"select",value:3.2,unit:"cm",options:[3.2,5.2]},
+            {id:"widthTotal",label:"Celková šířka",type:"rangeNumber",min:1,max:500,step:0.5,value:10,unit:"m"},
+            {id:"length",label:"Délka",type:"select",value:4,unit:"m",options:[3,4,5]}
+          ], priceBy:{height:{"3.2":10000,"5.2":16000}}}
+        }},
+        cerveny_dub:{label:"Červený dub", products:{
+          fosny:{label:"Fošny neohraněné", unit:"m³", priceMode:"m3_area", basePrice:8000, fields:[
+            {id:"height",label:"Tloušťka",type:"select",value:3.2,unit:"cm",options:[3.2,5.2]},
+            {id:"widthTotal",label:"Celková šířka",type:"rangeNumber",min:1,max:500,step:0.5,value:10,unit:"m"},
+            {id:"length",label:"Délka",type:"select",value:4,unit:"m",options:[3,4,5]}
+          ], priceBy:{height:{"3.2":8000,"5.2":13000}}}
+        }},
+        borovice:{label:"Borovice", products:{
+          prkna_ruzne_3_5:{label:"Prkna různě široká 3–5 m", unit:"m³", priceMode:"m3_area", basePrice:6000, fields:[
+            {id:"height",label:"Tloušťka",type:"fixed",value:2.5,unit:"cm"},
+            {id:"widthTotal",label:"Celková šířka",type:"rangeNumber",min:1,max:500,step:1,value:10,unit:"m"},
+            {id:"length",label:"Délka",type:"select",value:4,unit:"m",options:[3,4,5]}
+          ]},
+          fosny:{label:"Fošny", unit:"m³", priceMode:"fosny", basePrice:9000, fields:[
+            {id:"edgeType",label:"Provedení",type:"selectText",value:"ohranene",options:[["ohranene","Ohraněné"],["neohranene","Neohraněné"]]},
+            {id:"height",label:"Tloušťka",type:"select",value:5.2,unit:"cm",options:[3.2,4,5.2,6]},
+            {id:"widthType",label:"Typ šířky",type:"selectText",value:"same",options:[["same","Stejně široké"],["total","Různě široké"]]},
+            {id:"width",label:"Šířka",type:"rangeNumber",min:10,max:22,step:2,value:12,unit:"cm",showWhen:{widthType:"same"}},
+            {id:"widthTotal",label:"Celková šířka",type:"rangeNumber",min:1,max:500,step:0.5,value:10,unit:"m",showWhen:{widthType:"total"}},
+            {id:"length",label:"Délka",type:"rangeNumber",min:2,max:12,step:1,value:4,unit:"m"},
+            {id:"pieces",label:"Kusy",type:"rangeNumber",min:1,max:500,step:1,value:1,unit:"ks",showWhen:{widthType:"same"}}
+          ], priceBy:{height:{"3.2":8000}, edgeType:{neohranene:8500}, combo:{"neohranene|3.2":7500}}}
+        }}
+      }
+    };
+
+
+
+
+
+
+
+
+    const state = {
+      material: "smrk",
+      product: "tramy",
+      values: {},
+      services: {},
+      cart: [],
+      delivery: null,
+      editingId: null,
+      editingBackup: null,
+      deliveryEditingBackup: null,
+      selectedAddress: "",
+      addressResults: [],
+      activeSuggestion: -1
+    };
+
+
+
+
+
+
+
+
+    const $ = id => document.getElementById(id);
+
+    const CALCULATION_STORAGE_KEY = "pzSavedCalculationV1";
+
+    function getStableCartForStorage(){
+      const cart = JSON.parse(JSON.stringify(state.cart || []));
+
+      if(state.editingBackup && state.editingBackup.item){
+        const exists = cart.some(i => i.id === state.editingBackup.item.id);
+        if(!exists){
+          const index = Math.min(
+            Number.isInteger(state.editingBackup.index) ? state.editingBackup.index : cart.length,
+            cart.length
+          );
+          cart.splice(index, 0, JSON.parse(JSON.stringify(state.editingBackup.item)));
+        }
+      }
+
+      if(state.deliveryEditingBackup && state.deliveryEditingBackup.item){
+        const exists = cart.some(i => i.type === "delivery");
+        if(!exists){
+          const index = Math.min(
+            Number.isInteger(state.deliveryEditingBackup.index) ? state.deliveryEditingBackup.index : 0,
+            cart.length
+          );
+          cart.splice(index, 0, JSON.parse(JSON.stringify(state.deliveryEditingBackup.item)));
+        }
+      }
+
+      return cart;
+    }
+
+    function saveCalculationState(){
+      try{
+        localStorage.setItem(CALCULATION_STORAGE_KEY, JSON.stringify({
+          version: 1,
+          savedAt: Date.now(),
+          material: state.material,
+          product: state.product,
+          values: state.values,
+          services: state.services,
+          cart: getStableCartForStorage()
+        }));
+      }catch(e){}
+    }
+
+    function loadCalculationState(){
+      try{
+        const raw = localStorage.getItem(CALCULATION_STORAGE_KEY);
+        if(!raw) return false;
+
+        const saved = JSON.parse(raw);
+        if(!saved || saved.version !== 1) return false;
+
+        if(saved.material && CONFIG.materials[saved.material]){
+          state.material = saved.material;
+        }
+
+        if(
+          saved.product &&
+          CONFIG.materials[state.material] &&
+          CONFIG.materials[state.material].products[saved.product]
+        ){
+          state.product = saved.product;
+        }
+
+        if(saved.values && typeof saved.values === "object"){
+          state.values = saved.values;
+        }
+
+        if(saved.services && typeof saved.services === "object"){
+          state.services = saved.services;
+        }
+
+        if(Array.isArray(saved.cart)){
+          state.cart = saved.cart;
+        }
+
+        return true;
+      }catch(e){
+        return false;
+      }
+    }
+
+    function restoreStoredDeliveryUi(){
+      const delivery = state.cart.find(item => item.type === "delivery");
+      if(!delivery) return;
+
+      const deliveryHead = document.querySelector(".pz-delivery-head");
+      const deliveryBody = $("pz-delivery-body");
+      const deliveryCollapsed = $("pz-delivery-collapsed");
+      const collapsedAddress = $("pz-delivery-collapsed-address");
+
+      if(collapsedAddress){
+        collapsedAddress.textContent =
+          `${delivery.street}, ${delivery.postcode} ${delivery.city}`;
+      }
+      if(deliveryHead) deliveryHead.style.display = "none";
+      if(deliveryBody) deliveryBody.style.display = "none";
+      if(deliveryCollapsed) deliveryCollapsed.style.display = "flex";
+    }
+
+    const fmtMoney = n => Math.round(n || 0).toLocaleString("cs-CZ") + " Kč";
+    const fmtNum = (n,d=2) => (n || 0).toLocaleString("cs-CZ",{minimumFractionDigits:d,maximumFractionDigits:d});
+    const fmtM3 = n => fmtNum(n,3) + " m³";
+    const uid = () => "PZ-" + Date.now().toString(36).toUpperCase() + "-" + Math.random().toString(36).slice(2,6).toUpperCase();
+
+
+
+
+
+
+
+
+    function productDef(){ return CONFIG.materials[state.material].products[state.product]; }
+    function materialDef(){ return CONFIG.materials[state.material]; }
+    function defaultValues(prod){
+      const vals = {};
+      prod.fields.forEach(f => vals[f.id] = f.value);
+      if(prod.fixed){ Object.keys(prod.fixed).forEach(k => vals[k]=prod.fixed[k]); }
+      return vals;
+    }
+    function isVisible(field){
+      if(!field.showWhen) return true;
+      return Object.keys(field.showWhen).every(k => String(state.values[k]) === String(field.showWhen[k]));
+    }
+    function getPrice(prod, vals){
+      let price = prod.basePrice;
+      if(prod.priceBy){
+        if(prod.priceBy.edgeType && vals.edgeType && prod.priceBy.edgeType[vals.edgeType]) price = prod.priceBy.edgeType[vals.edgeType];
+        if(prod.priceBy.height && vals.height && prod.priceBy.height[String(vals.height)]) price = prod.priceBy.height[String(vals.height)];
+        if(prod.priceBy.combo){
+          const key = (vals.edgeType || "") + "|" + (vals.height || "");
+          if(prod.priceBy.combo[key]) price = prod.priceBy.combo[key];
+        }
+      }
+      return price;
+    }
+    function metrics(prod, vals){
+      const width = Number(vals.width || prod.fixed?.width || 0);
+      const height = Number(vals.height || prod.fixed?.height || 0);
+      const length = Number(vals.length || 0);
+      const pieces = Number(vals.pieces || 0);
+      const widthTotal = Number(vals.widthTotal || 0);
+      let area = 0, volume = 0, bm = 0, count = 0, quantity = 0;
+
+
+
+
+
+
+
+
+      if(prod.priceMode === "m3"){
+  area = (width/100) * length * pieces;
+  volume = (width/100) * (height/100) * length * pieces;
+  bm = length * pieces;
+  count = pieces;
+  quantity = volume;
+      } else if(prod.priceMode === "m3_area" || (prod.priceMode === "fosny" && vals.widthType === "total")){
+        area = widthTotal * length;
+        volume = area * (height/100);
+        quantity = volume;
+      } else if(prod.priceMode === "fosny"){
+    area = (width/100) * length * pieces;
+    volume = (width/100) * (height/100) * length * pieces;
+    bm = length * pieces;
+    count = pieces;
+    quantity = volume;
+      } else if(prod.priceMode === "m"){
+        bm = length * pieces;
+        volume = ((prod.fixed.width/100) * (prod.fixed.height/100) * length * pieces);
+        count = pieces;
+        quantity = bm;
+      } else if(prod.priceMode === "piece"){
+        count = pieces;
+        quantity = pieces;
+      }
+      return {area, volume, bm, count, quantity};
+    }
+    function calcCurrent(){
+      const prod = productDef();
+      const vals = Object.assign({}, state.values);
+      const met = metrics(prod, vals);
+      const price = getPrice(prod, vals);
+      const wood = met.quantity * price;
+      let servicesPrice = 0;
+      const serviceRows = [];
+      if(prod.services !== false){
+        Object.keys(state.services).forEach(key=>{
+          const selected = state.services[key];
+          if(!selected) return;
+          const def = CONFIG.services[key];
+          let label = def.label, unitPrice = 0;
+          if(def.type === "toggle"){
+            unitPrice = def.price;
+          } else {
+            const choice = def.choices.find(c=>c.id===selected);
+            if(!choice) return;
+            unitPrice = choice.price;
+            label += " – " + choice.label;
+          }
+          const amount = met.volume * unitPrice;
+          servicesPrice += amount;
+          serviceRows.push({key,label,unitPrice,unit:"m³",amount});
+        });
+      }
+
+
+
+
+
+
+
+
+      const totalPricePerM3 =
+  met.volume > 0
+    ? (wood + servicesPrice) / met.volume
+    : 0;
+
+
+
+
+
+
+
+
+const pricePerPiece =
+  met.count > 0
+    ? (met.volume / met.count) * totalPricePerM3
+    : 0;
+
+
+
+
+
+
+
+
+const pricePerBm =
+  met.bm > 0
+    ? (met.volume * totalPricePerM3) / met.bm
+    : 0;
+      const pricePerM2 =
+met.area > 0
+  ? (met.volume * totalPricePerM3) / met.area
+  : 0;
+      const withoutVat = wood + servicesPrice;
+const vat = withoutVat * CONFIG.vat;
+
+
+
+
+
+
+
+
+return {
+  prod,
+  vals,
+  met,
+  unitPrice: price,
+  wood,
+  servicesPrice,
+  serviceRows,
+  pricePerPiece,
+  pricePerBm,
+  pricePerM2,
+  totalPricePerM3,
+  withoutVat,
+  vat,
+  withVat: withoutVat + vat
+};
+    }
+    function titleFor(item){
+      const mat = CONFIG.materials[item.material].label;
+      const prod = CONFIG.materials[item.material].products[item.product].label;
+      return mat + " – " + prod;
+    }
+    function descFor(calc){
+      const v = calc.vals, p = calc.prod;
+      const n = value => Number(value).toLocaleString("cs-CZ", {maximumFractionDigits:2});
+
+      if(p.priceMode==="piece"){
+        return "Druh: " + (v.scrapType==="katr"?"Katr":"Zejt") + " | " + n(v.pieces || 0) + " ks";
+      }
+
+      if(p.priceMode==="m"){
+        return "4 cm × 6 cm × " + n(v.length) + " m | " + n(v.pieces || 0) + " ks";
+      }
+
+      if(v.widthType==="total" || p.priceMode==="m3_area"){
+        const totalWidthCm = Number(v.widthTotal || 0) * 100;
+        return n(v.height) + " cm × celková šířka " + n(totalWidthCm) + " cm × " + n(v.length) + " m";
+      }
+
+      return n(v.height || p.fixed?.height) + " cm × " +
+             n(v.width || p.fixed?.width) + " cm × " +
+             n(v.length) + " m | " +
+             n(v.pieces || 0) + " ks";
+    }
+    function validate(){
+      const calc = calcCurrent();
+      let ok = true;
+      productDef().fields.forEach(f=>{
+        const el = $("fieldwrap-"+f.id);
+        if(!el || !isVisible(f)) return;
+        const val = state.values[f.id];
+        const bad = val === "" || val === null || val === undefined || Number(val) < 0 || (["width","height","length","pieces","widthTotal"].includes(f.id) && Number(val)<=0);
+        el.classList.toggle("invalid", bad);
+        if(bad) ok = false;
+      });
+      if(calc.withoutVat <= 0) ok = false;
+      $("pz-add-btn").disabled = !ok;
+      return ok;
+    }
+    function renderMaterials(){
+      $("pz-materials").innerHTML = Object.keys(CONFIG.materials).map(id=>`
+        <button type="button" class="pz-card-choice ${id===state.material?'active':''}" data-material="${id}">
+          <strong>${CONFIG.materials[id].label}</strong>
+          <span>${Object.keys(CONFIG.materials[id].products).length} možností</span>
+        </button>`).join("");
+      document.querySelectorAll("[data-material]").forEach(btn=>btn.onclick=()=>{
+        state.material = btn.dataset.material;
+        state.product = Object.keys(CONFIG.materials[state.material].products)[0];
+        state.values = defaultValues(productDef());
+        state.services = {};
+        renderAll();
+      });
+    }
+    function renderProducts(){
+      const products = materialDef().products;
+      $("pz-products").innerHTML = Object.keys(products).map(id=>`
+        <button type="button" class="pz-card-choice ${id===state.product?'active':''}" data-product="${id}">
+          <strong>${products[id].label}</strong>
+          <span>${unitLabel(products[id])}</span>
+        </button>`).join("");
+      document.querySelectorAll("[data-product]").forEach(btn=>btn.onclick=()=>{
+        state.product = btn.dataset.product;
+        state.values = defaultValues(productDef());
+        state.services = {};
+        renderAll();
+      });
+    }
+    function unitLabel(prod){
+      if(prod.priceMode==="m") return fmtMoney(prod.basePrice) + " / bm";
+      if(prod.priceMode==="piece") return fmtMoney(prod.basePrice) + " / ks";
+      return "od " + fmtMoney(prod.basePrice) + " / m³";
+    }
+    function renderParams(){
+      const prod = productDef();
+
+
+      // Všechny Fošny s volbou provedení:
+      // pokud jsou Neohraněné, typ šířky je vždy pevně „Různě široké“.
+      if(
+        state.product === "fosny" &&
+        state.values.edgeType === "neohranene" &&
+        Object.prototype.hasOwnProperty.call(state.values, "widthType")
+      ){
+        state.values.widthType = "total";
+      }
+
+
+      $("pz-params").innerHTML = prod.fields.map(f=>{
+        if(!isVisible(f)) return "";
+        const val = state.values[f.id];
+        let control = "";
+        if(f.type==="fixed"){
+          control = `<div class="pz-fixed">${f.value} ${f.unit||""}</div>`;
+          state.values[f.id] = f.value;
+        } else if(f.type==="rangeNumber"){
+          control = `<div class="pz-inline-control">
+            <input data-field="${f.id}" type="range" min="${f.min}" max="${f.max}" step="${f.step}" value="${val}">
+            <input data-field="${f.id}" type="number" min="${f.min}" max="${f.max}" step="${f.step}" value="${val}">
+          </div>`;
+        } else if(f.type==="select"){
+  control = `<select data-field="${f.id}">${f.options.map(o=>{
+    const label =
+      state.material === "smrk" &&
+      state.product === "prkna_stejna" &&
+      f.id === "width" &&
+      Number(o) === 22
+        ? "20+ cm"
+        : `${o} ${f.unit||""}`;
+
+
+    return `<option value="${o}" ${String(o)===String(val)?"selected":""}>${label}</option>`;
+  }).join("")}</select>`;
+        } else if(f.type==="selectText"){
+          const lockedWidthType =
+            state.product === "fosny" &&
+            state.values.edgeType === "neohranene" &&
+            f.id === "widthType";
+
+
+          if(lockedWidthType){
+            control = `<select disabled><option selected>Různě široké</option></select>`;
+          } else {
+            control = `<select data-field="${f.id}">${f.options.map(o=>`<option value="${o[0]}" ${String(o[0])===String(val)?"selected":""}>${o[1]}</option>`).join("")}</select>`;
+          }
+        }
+        return `<div class="pz-field" id="fieldwrap-${f.id}">
+          <label>${f.label}${f.unit && f.type!=="select" ? " ("+f.unit+")" : ""}</label>
+          ${control}
+          <div class="pz-error">Zadejte platnou hodnotu.</div>
+        </div>`;
+      }).join("");
+
+
+      document.querySelectorAll("[data-field]").forEach(input=>{
+
+
+        const key = input.dataset.field;
+
+
+        // ===== SLIDER =====
+        if(input.type === "range"){
+
+
+          input.oninput = ()=>{
+            const value = Number(input.value);
+
+
+            state.values[key] = value;
+
+
+            const numberInput = document.querySelector(
+              `input[type="number"][data-field="${key}"]`
+            );
+
+
+            if(numberInput){
+              numberInput.value = input.value;
+              numberInput.classList.remove("pz-limit-error");
+            }
+
+
+            const wrap = document.getElementById(`fieldwrap-${key}`);
+            if(wrap){
+              wrap.classList.remove("invalid");
+            }
+
+
+            updatePreview();
+            saveDraft();
+          };
+
+
+          input.onchange = ()=>{
+            renderParams();
+            renderServices();
+            updatePreview();
+            saveDraft();
+          };
+
+
+          return;
+        }
+
+
+        // ===== ČÍSELNÉ POLE =====
+        if(input.type === "number"){
+
+
+          input.addEventListener("focus", ()=>{
+            input.select();
+          });
+
+
+          input.oninput = ()=>{
+
+
+            const rawValue = input.value;
+            const value = Number(rawValue);
+
+
+            const min = Number(input.min);
+            const max = Number(input.max);
+
+
+            const slider = document.querySelector(
+              `input[type="range"][data-field="${key}"]`
+            );
+
+
+            const wrap = document.getElementById(`fieldwrap-${key}`);
+            const error = wrap ? wrap.querySelector(".pz-error") : null;
+
+
+            if(rawValue === ""){
+              input.classList.remove("pz-limit-error");
+
+
+              if(wrap) wrap.classList.remove("invalid");
+
+
+              if(error){
+                error.textContent = "";
+              }
+
+
+              return;
+            }
+
+
+            if(value > max || value < min){
+
+
+              input.classList.add("pz-limit-error");
+
+
+              if(wrap) wrap.classList.add("invalid");
+
+
+              if(error){
+                error.textContent = "Zadaná hodnota je mimo povolený rozsah.";
+              }
+
+
+              if(slider){
+                slider.value = value > max ? max : min;
+              }
+
+
+              return;
+            }
+
+
+            input.classList.remove("pz-limit-error");
+
+
+            if(wrap) wrap.classList.remove("invalid");
+
+
+            if(error){
+              error.textContent = "";
+            }
+
+
+            if(slider){
+              slider.value = value;
+            }
+
+
+            state.values[key] = value;
+
+
+            updatePreview();
+            saveDraft();
+          };
+
+
+          // ===== ENTER =====
+          input.onkeydown = (e)=>{
+
+
+            if(e.key !== "Enter") return;
+
+
+            e.preventDefault();
+
+
+            const value = Number(input.value);
+            const min = Number(input.min);
+            const max = Number(input.max);
+
+
+            if(
+              input.value === "" ||
+              !Number.isFinite(value) ||
+              value < min ||
+              value > max
+            ){
+              return;
+            }
+
+
+            state.values[key] = value;
+
+
+            updatePreview();
+            saveDraft();
+
+
+            const numberInputs = Array.from(
+              document.querySelectorAll(
+                '#pz-params input[type="number"][data-field]'
+              )
+            );
+
+
+            const currentIndex = numberInputs.indexOf(input);
+            const nextInput = numberInputs[currentIndex + 1];
+
+
+            if(nextInput){
+              nextInput.focus();
+              nextInput.select();
+            }else{
+              input.blur();
+            }
+          };
+
+
+          return;
+        }
+
+
+        // ===== OSTATNÍ POLE =====
+        input.oninput = input.onchange = ()=>{
+
+
+          state.values[key] = input.value;
+
+
+          renderParams();
+          renderServices();
+          updatePreview();
+          saveDraft();
+        };
+
+
+      });
+
+
+    }
+    function renderServices(){
+      const prod = productDef();
+      if(prod.services === false){
+        $("pz-services").innerHTML = `<p class="pz-muted">Pro tento sortiment nejsou doplňkové služby dostupné.</p>`;
+        return;
+      }
+     $("pz-services").innerHTML = Object.keys(CONFIG.services).map(key=>{
+  const s = CONFIG.services[key];
+  const active = !!state.services[key];
+  let inner = "";
+
+
+
+
+
+
+
+
+// Hoblování
+if(key === "planing"){
+  const selectedChoice = s.choices.find(c => c.id === state.services[key]);
+
+
+
+
+
+
+
+
+  if(active && selectedChoice){
+    inner = `<p>+${fmtMoney(selectedChoice.price)} / m³</p>`;
+  } else {
+    inner = `<p>+500 – 2 000 Kč / m³</p>`;
+  }
+
+
+
+
+
+
+
+
+  // Sražení hran
+} else if(key === "edge"){
+  const selectedChoice = s.choices.find(c => c.id === state.services[key]);
+
+
+
+
+
+
+
+
+  if(active && selectedChoice){
+    inner = `<p>+${fmtMoney(selectedChoice.price)} / m³</p>`;
+  } else {
+    inner = `<p>+500 – 1 000 Kč / m³</p>`;
+  }
+
+
+
+
+
+
+
+
+  // Impregnace + zaříznutí
+  } else if(s.type === "toggle"){
+    inner = `<p>+${fmtMoney(s.price)} / m³</p>`;
+
+
+
+
+
+
+
+
+  // Ostatní choice služby
+  } else {
+    inner = `<div class="pz-service-options">${s.choices.map(c=>`
+      <label class="pz-radio-row">
+        <input
+          type="radio"
+          name="service-${key}"
+          data-service-choice="${key}"
+          value="${c.id}"
+          ${state.services[key]===c.id ? "checked" : ""}
+        >
+        ${c.label} +${fmtMoney(c.price)} / m³
+      </label>
+    `).join("")}</div>`;
+  }
+let displayLabel = s.label;
+
+
+
+
+
+
+
+
+if(key === "planing" && active){
+  const selectedChoice = s.choices.find(c => c.id === state.services[key]);
+
+
+
+
+
+
+
+
+  if(selectedChoice){
+    displayLabel =
+      selectedChoice.id === "1" ? "Hoblování – z 1 strany" :
+      selectedChoice.id === "2" ? "Hoblování – ze 2 stran" :
+      selectedChoice.id === "3" ? "Hoblování – ze 3 stran" :
+      "Hoblování – ze 4 stran";
+  }
+}
+       if(key === "edge" && active){
+  const selectedChoice = s.choices.find(c => c.id === state.services[key]);
+
+
+
+
+
+
+
+
+  if(selectedChoice){
+    displayLabel =
+      selectedChoice.id === "1"
+        ? "Sražení hran – 1 plocha"
+        : "Sražení hran – 2 plochy";
+  }
+}
+  return `<div class="pz-service ${active ? "active" : ""}" data-service="${key}">
+    <h3>${displayLabel}</h3>${inner}
+  </div>`;
+}).join("");
+
+
+
+
+
+
+
+
+document.querySelectorAll("[data-service]").forEach(card=>{
+  card.onclick = (e)=>{
+    // Kliknutí na ovládací prvek uvnitř karty nesmí kartu vypnout
+    if(e.target.closest("input, select, option, label")) return;
+
+
+
+
+
+
+
+
+    const key = card.dataset.service;
+const s = CONFIG.services[key];
+
+
+
+
+
+
+
+
+// Hoblování řešíme zvlášť
+if(key === "planing"){
+
+
+
+
+
+
+
+
+  // Pokud ještě není vybrané, pouze zobrazíme nabídku.
+  // Zatím Hoblování NEaktivujeme.
+  if(!state.services[key]){
+    card.classList.add("pz-planing-open");
+
+
+
+
+
+
+
+
+    const oldMenu = card.querySelector(".pz-planing-menu");
+    if(oldMenu) oldMenu.remove();
+
+
+
+
+
+
+
+
+    const menu = document.createElement("div");
+    menu.className = "pz-planing-menu";
+
+
+
+
+
+
+
+
+    menu.innerHTML = s.choices.map(c => {
+      const text =
+        c.id === "1" ? "Z 1 strany" :
+        c.id === "2" ? "Ze 2 stran" :
+        c.id === "3" ? "Ze 3 stran" :
+        "Ze 4 stran";
+
+
+
+
+
+
+
+
+      return `<button type="button" data-planing-choice="${c.id}">${text}</button>`;
+    }).join("");
+
+
+
+
+
+
+
+
+    card.appendChild(menu);
+
+
+
+
+
+
+
+
+    menu.querySelectorAll("[data-planing-choice]").forEach(btn=>{
+      btn.onclick = (event)=>{
+        event.stopPropagation();
+
+
+
+
+
+
+
+
+        state.services[key] = btn.dataset.planingChoice;
+
+
+
+
+
+
+
+
+        renderServices();
+        updatePreview();
+        saveDraft();
+      };
+    });
+
+
+
+
+
+
+
+
+    return;
+  }
+
+
+
+
+
+
+
+
+  // Pokud už je Hoblování vybrané, kliknutím zatím výběr zrušíme.
+  delete state.services[key];
+
+
+
+
+
+
+
+
+} else if(key === "edge"){
+
+
+
+
+
+
+
+
+  // Pokud ještě není vybrané sražení hran, zobrazíme nabídku
+  if(!state.services[key]){
+    card.classList.add("pz-planing-open");
+
+
+
+
+
+
+
+
+    const oldMenu = card.querySelector(".pz-planing-menu");
+    if(oldMenu) oldMenu.remove();
+
+
+
+
+
+
+
+
+    const menu = document.createElement("div");
+    menu.className = "pz-planing-menu";
+
+
+
+
+
+
+
+
+    menu.innerHTML = s.choices.map(c => {
+      const text = c.id === "1" ? "1 plocha" : "2 plochy";
+
+
+
+
+
+
+
+
+      return `<button type="button" data-edge-choice="${c.id}">${text}</button>`;
+    }).join("");
+
+
+
+
+
+
+
+
+    card.appendChild(menu);
+
+
+
+
+
+
+
+
+    menu.querySelectorAll("[data-edge-choice]").forEach(btn=>{
+      btn.onclick = (event)=>{
+        event.stopPropagation();
+
+
+
+
+
+
+
+
+        state.services[key] = btn.dataset.edgeChoice;
+
+
+
+
+
+
+
+
+        renderServices();
+        updatePreview();
+        saveDraft();
+      };
+    });
+
+
+
+
+
+
+
+
+    return;
+  }
+
+
+
+
+
+
+
+
+  // Pokud už je vybráno, kliknutí na kartu službu vypne
+  delete state.services[key];
+
+
+
+
+
+
+
+
+} else {
+
+
+
+
+
+
+
+
+  // Původní chování všech ostatních služeb
+  if(state.services[key]){
+    delete state.services[key];
+  } else {
+    state.services[key] = s.type === "choice" ? s.choices[0].id : true;
+  }
+}
+
+
+
+
+
+
+
+
+renderServices();
+updatePreview();
+saveDraft();
+  };
+});
+
+
+
+
+
+
+
+
+document.querySelectorAll("[data-service-choice]").forEach(control=>{
+  control.onclick = (e)=>{
+    e.stopPropagation();
+  };
+
+
+
+
+
+
+
+
+  control.onchange = (e)=>{
+    e.stopPropagation();
+
+
+
+
+
+
+
+
+    const key = control.dataset.serviceChoice;
+    state.services[key] = control.value;
+
+
+
+
+
+
+
+
+    updatePreview();
+    saveDraft();
+  };
+}); 
+    }
+
+
+
+
+
+    /* =====================================================
+       ŽIVÁ 3D VIZUALIZACE ŘEZIVA
+       - bez externí knihovny: lehký canvas renderer
+       - reaguje přímo na změnu rozměrů
+       - 3D nijak nezasahuje do výpočtů kalkulace
+    ===================================================== */
+    const pz3d = {
+      model: null,
+      small: null,
+      large: null,
+      modalOpen: false
+    };
+
+    function pz3dFormat(value, unit){
+      const num = Number(value);
+      if(!Number.isFinite(num)) return "—";
+      return num.toLocaleString("cs-CZ", {maximumFractionDigits:2}) + " " + unit;
+    }
+
+    function get3DModelData(){
+      const prod = productDef();
+      const vals = state.values || {};
+
+      if(state.product === "odrezky"){
+        return {
+          available:false,
+          reason:"Odřezky nemají jednotně definované rozměry, proto pro ně nelze vytvořit přesný 3D náhled."
+        };
+      }
+
+      if(
+        state.product === "prkna_ruzne_3_5" ||
+        state.product === "prkna_ruzne_08_25"
+      ){
+        return {
+          available:false,
+          reason:"U různě širokého řeziva nejsou zadány rozměry jednotlivých kusů, proto nelze vytvořit přesný 3D náhled."
+        };
+      }
+
+      const isFosna = state.product === "fosny";
+      const isUnedged = isFosna && vals.edgeType === "neohranene";
+      const isDifferentWidth = isFosna && vals.widthType === "total";
+
+      if(isFosna && isDifferentWidth && !isUnedged){
+        return {
+          available:false,
+          reason:"U různě širokého řeziva nejsou zadány rozměry jednotlivých kusů, proto nelze vytvořit přesný 3D náhled."
+        };
+      }
+
+      const heightCm = Number(vals.height || prod.fixed?.height || 0);
+      const lengthM = Number(vals.length || 0);
+
+      // U neohraněné fošny jednotlivá šířka známá není.
+      // Pro orientační model používáme neutrální reprezentativní šířku 20 cm
+      // a nikdy ji nevydáváme za skutečný rozměr.
+      const widthCm = isUnedged
+        ? 20
+        : Number(vals.width || prod.fixed?.width || 0);
+
+      if(
+        !Number.isFinite(heightCm) || heightCm <= 0 ||
+        !Number.isFinite(widthCm) || widthCm <= 0 ||
+        !Number.isFinite(lengthM) || lengthM <= 0
+      ){
+        return {
+          available:false,
+          reason:"3D náhled se zobrazí po zadání platných rozměrů."
+        };
+      }
+
+      return {
+        available:true,
+        length:lengthM,
+        width:widthCm / 100,
+        height:heightCm / 100,
+        lengthLabel:pz3dFormat(lengthM,"m"),
+        widthLabel:isUnedged ? "šířka orientační" : pz3dFormat(widthCm,"cm"),
+        heightLabel:pz3dFormat(heightCm,"cm"),
+        unedged:isUnedged
+      };
+    }
+
+    function create3DViewer(canvasId, stageId){
+      const canvas = $(canvasId);
+      const stage = $(stageId);
+      if(!canvas || !stage) return null;
+
+      const viewer = {
+        canvas,
+        stage,
+        ctx:canvas.getContext("2d"),
+        yaw:-0.62,
+        pitch:-0.34,
+        zoom:1,
+        panX:0,
+        panY:0,
+        pointers:new Map(),
+        lastPointer:null,
+        lastPinchDistance:0
+      };
+
+      const resize = ()=>{
+        const rect = stage.getBoundingClientRect();
+        if(rect.width <= 0 || rect.height <= 0) return;
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        const w = Math.max(1, Math.round(rect.width * dpr));
+        const h = Math.max(1, Math.round(rect.height * dpr));
+        if(canvas.width !== w || canvas.height !== h){
+          canvas.width = w;
+          canvas.height = h;
+        }
+        canvas.style.width = rect.width + "px";
+        canvas.style.height = rect.height + "px";
+        draw3DViewer(viewer);
+      };
+
+      // ResizeObserver pouze naplánuje přepočet do dalšího snímku.
+      // Tím se zabrání varování „ResizeObserver loop completed…“ v CodePenu.
+      let resizeFrame=0;
+      const scheduleResize=()=>{
+        cancelAnimationFrame(resizeFrame);
+        resizeFrame=requestAnimationFrame(resize);
+      };
+      if(typeof ResizeObserver !== "undefined"){
+        viewer.resizeObserver = new ResizeObserver(scheduleResize);
+        viewer.resizeObserver.observe(stage);
+      }
+      window.addEventListener("resize", scheduleResize);
+
+      canvas.addEventListener("pointerdown", e=>{
+        if(!pz3d.model || !pz3d.model.available) return;
+        canvas.setPointerCapture?.(e.pointerId);
+        viewer.pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+        viewer.lastPointer={x:e.clientX,y:e.clientY};
+        if(viewer.pointers.size === 2){
+          const pts=[...viewer.pointers.values()];
+          viewer.lastPinchDistance=Math.hypot(pts[0].x-pts[1].x,pts[0].y-pts[1].y);
+        }
+      });
+
+      canvas.addEventListener("pointermove", e=>{
+        if(!viewer.pointers.has(e.pointerId)) return;
+
+        viewer.pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+
+        if(viewer.pointers.size >= 2){
+          const pts=[...viewer.pointers.values()].slice(0,2);
+          const dist=Math.hypot(pts[0].x-pts[1].x,pts[0].y-pts[1].y);
+          if(viewer.lastPinchDistance > 0 && dist > 0){
+            viewer.zoom *= dist / viewer.lastPinchDistance;
+            viewer.zoom = Math.max(.18,Math.min(20,viewer.zoom));
+          }
+          viewer.lastPinchDistance=dist;
+          draw3DViewer(viewer);
+          return;
+        }
+
+        if(viewer.lastPointer){
+          const dx=e.clientX-viewer.lastPointer.x;
+          const dy=e.clientY-viewer.lastPointer.y;
+          viewer.yaw += dx * .008;
+          viewer.pitch += dy * .008;
+          viewer.pitch = Math.max(-1.15,Math.min(1.15,viewer.pitch));
+          viewer.lastPointer={x:e.clientX,y:e.clientY};
+          draw3DViewer(viewer);
+        }
+      });
+
+      const endPointer = e=>{
+        viewer.pointers.delete(e.pointerId);
+        viewer.lastPinchDistance=0;
+        if(viewer.pointers.size === 1){
+          const pt=[...viewer.pointers.values()][0];
+          viewer.lastPointer={x:pt.x,y:pt.y};
+        }else{
+          viewer.lastPointer=null;
+        }
+      };
+      canvas.addEventListener("pointerup",endPointer);
+      canvas.addEventListener("pointercancel",endPointer);
+
+      canvas.addEventListener("wheel", e=>{
+        if(!pz3d.model || !pz3d.model.available) return;
+        e.preventDefault();
+        viewer.zoom *= e.deltaY > 0 ? .92 : 1.08;
+        viewer.zoom = Math.max(.18,Math.min(20,viewer.zoom));
+        draw3DViewer(viewer);
+      },{passive:false});
+
+      viewer.resize=resize;
+      requestAnimationFrame(resize);
+      return viewer;
+    }
+
+    function reset3DViewer(viewer){
+      if(!viewer) return;
+      viewer.yaw=-0.62;
+      viewer.pitch=-0.34;
+      viewer.zoom=1;
+      viewer.panX=0;
+      viewer.panY=0;
+      draw3DViewer(viewer);
+    }
+
+    function copy3DCamera(from,to){
+      if(!from || !to) return;
+      to.yaw=from.yaw;
+      to.pitch=from.pitch;
+      to.zoom=from.zoom;
+      to.panX=from.panX || 0;
+      to.panY=from.panY || 0;
+    }
+
+    function project3DPoint(point, viewer, centerX, centerY, scale){
+      const cy=Math.cos(viewer.yaw), sy=Math.sin(viewer.yaw);
+      const cp=Math.cos(viewer.pitch), sp=Math.sin(viewer.pitch);
+
+      let x=point.x, y=point.y, z=point.z;
+
+      const x1=x*cy-z*sy;
+      const z1=x*sy+z*cy;
+      const y1=y*cp-z1*sp;
+      const z2=y*sp+z1*cp;
+
+      // Ortografická projekce: hranol zůstává při otáčení geometricky čistý.
+      return {
+        x:centerX+x1*scale,
+        y:centerY-y1*scale,
+        z:z2
+      };
+    }
+
+    function drawDimension(ctx,a,b,label,offsetX,offsetY,canvasW,canvasH){
+      const x1=a.x+offsetX, y1=a.y+offsetY;
+      const x2=b.x+offsetX, y2=b.y+offsetY;
+
+      ctx.save();
+      ctx.strokeStyle="#2f5f3a";
+      ctx.fillStyle="#2f5f3a";
+      ctx.lineWidth=1.25;
+      ctx.setLineDash([]);
+
+      ctx.beginPath();
+      ctx.moveTo(a.x,a.y); ctx.lineTo(x1,y1);
+      ctx.moveTo(b.x,b.y); ctx.lineTo(x2,y2);
+      ctx.moveTo(x1,y1); ctx.lineTo(x2,y2);
+      ctx.stroke();
+
+      const angle=Math.atan2(y2-y1,x2-x1);
+      const arrow=6;
+      const drawArrow=(x,y,dir)=>{
+        ctx.beginPath();
+        ctx.moveTo(x,y);
+        ctx.lineTo(
+          x+Math.cos(angle+dir*.55)*arrow*dir,
+          y+Math.sin(angle+dir*.55)*arrow*dir
+        );
+        ctx.moveTo(x,y);
+        ctx.lineTo(
+          x+Math.cos(angle-dir*.55)*arrow*dir,
+          y+Math.sin(angle-dir*.55)*arrow*dir
+        );
+        ctx.stroke();
+      };
+      drawArrow(x1,y1,1);
+      drawArrow(x2,y2,-1);
+
+      ctx.font="600 12px Arial, Helvetica, sans-serif";
+      const text=String(label);
+      const metrics=ctx.measureText(text);
+      const padX=7, boxH=22;
+      let tx=(x1+x2)/2;
+      let ty=(y1+y2)/2;
+      tx=Math.max(metrics.width/2+padX+4,Math.min(canvasW-metrics.width/2-padX-4,tx));
+      ty=Math.max(boxH/2+4,Math.min(canvasH-boxH/2-4,ty));
+
+      ctx.fillStyle="rgba(255,255,255,.94)";
+      ctx.strokeStyle="rgba(47,95,58,.35)";
+      const boxW=metrics.width+padX*2;
+      ctx.beginPath();
+      if(ctx.roundRect){
+        ctx.roundRect(tx-boxW/2,ty-boxH/2,boxW,boxH,7);
+      }else{
+        ctx.rect(tx-boxW/2,ty-boxH/2,boxW,boxH);
+      }
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle="#1f4328";
+      ctx.textAlign="center";
+      ctx.textBaseline="middle";
+      ctx.fillText(text,tx,ty+.5);
+      ctx.restore();
+    }
+
+    function draw3DViewer(viewer){
+      if(!viewer || !viewer.ctx) return;
+      const ctx=viewer.ctx;
+      const canvas=viewer.canvas;
+      const dpr=Math.min(window.devicePixelRatio || 1,2);
+      const W=canvas.width/dpr;
+      const H=canvas.height/dpr;
+
+      ctx.setTransform(dpr,0,0,dpr,0,0);
+      ctx.clearRect(0,0,W,H);
+
+      const model=pz3d.model;
+      if(!model || !model.available) return;
+
+      const L=model.length;
+      const Hm=model.height;
+      const Wm=model.width;
+
+      // Obyčejný pravoúhlý hranol se středem v počátku.
+      // Všechny tři rozměry používají stejné měřítko, takže poměr průřezu zůstává přesný.
+      const verts=[
+        {x:-L/2,y:-Hm/2,z:-Wm/2},
+        {x: L/2,y:-Hm/2,z:-Wm/2},
+        {x: L/2,y: Hm/2,z:-Wm/2},
+        {x:-L/2,y: Hm/2,z:-Wm/2},
+        {x:-L/2,y:-Hm/2,z: Wm/2},
+        {x: L/2,y:-Hm/2,z: Wm/2},
+        {x: L/2,y: Hm/2,z: Wm/2},
+        {x:-L/2,y: Hm/2,z: Wm/2}
+      ];
+
+      // Výchozí pohled zobrazí celý hranol. Zoom pak dovolí detail čela/průřezu.
+      // Důležité: šířka a výška se nikdy nenormalizují samostatně.
+      const fitLength=Math.max(L,0.01);
+      const fitCross=Math.max(Hm,Wm,0.01);
+      const scaleByLength=(W*.62)/fitLength;
+      const scaleByCross=(H*.48)/fitCross;
+      const baseScale=Math.min(scaleByLength,scaleByCross);
+      const scale=baseScale*viewer.zoom;
+      const centerX=W*.50+(viewer.panX||0);
+      const centerY=H*.48+(viewer.panY||0);
+
+      const pts=verts.map(v=>project3DPoint(v,viewer,centerX,centerY,scale));
+
+      // jemný stín
+      const xs=pts.map(p=>p.x), ys=pts.map(p=>p.y);
+      const minX=Math.min(...xs), maxX=Math.max(...xs);
+      const minY=Math.min(...ys), maxY=Math.max(...ys);
+      ctx.save();
+      ctx.fillStyle="rgba(25,45,30,.10)";
+      ctx.beginPath();
+      ctx.ellipse(
+        (minX+maxX)/2,
+        Math.min(H-18,maxY+16),
+        Math.max(18,(maxX-minX)*.38),
+        Math.max(4,(maxY-minY)*.10),
+        0,0,Math.PI*2
+      );
+      ctx.fill();
+      ctx.restore();
+
+      const faces=[
+        {idx:[0,1,2,3],fill:"#faedcf"},
+        {idx:[4,5,6,7],fill:"#fff6e2"},
+        {idx:[0,1,5,4],fill:"#f6e3bd"},
+        {idx:[3,2,6,7],fill:"#fff8e8"},
+        {idx:[0,3,7,4],fill:"#f8e8c8"},
+        {idx:[1,2,6,5],fill:"#fcefd5"}
+      ];
+
+      faces.forEach(face=>{
+        face.depth=face.idx.reduce((s,i)=>s+pts[i].z,0)/face.idx.length;
+      });
+      faces.sort((a,b)=>a.depth-b.depth);
+
+      faces.forEach(face=>{
+        ctx.save();
+        ctx.beginPath();
+        face.idx.forEach((i,k)=>{
+          if(k===0) ctx.moveTo(pts[i].x,pts[i].y);
+          else ctx.lineTo(pts[i].x,pts[i].y);
+        });
+        ctx.closePath();
+        ctx.fillStyle=face.fill;
+        ctx.fill();
+        ctx.strokeStyle="rgba(92,72,42,.32)";
+        ctx.lineWidth=.8;
+        ctx.stroke();
+        ctx.restore();
+      });
+
+      // Pevná kostra hranolu: všech 12 hran se kreslí vždy nad plochami.
+      const prismEdges=[
+        [0,1],[1,2],[2,3],[3,0],
+        [4,5],[5,6],[6,7],[7,4],
+        [0,4],[1,5],[2,6],[3,7]
+      ];
+      ctx.save();
+      ctx.setLineDash([]);
+      ctx.strokeStyle="rgba(91,70,38,.92)";
+      ctx.lineWidth=1.35;
+      ctx.lineJoin="round";
+      ctx.lineCap="round";
+      prismEdges.forEach(([a,b])=>{
+        ctx.beginPath();
+        ctx.moveTo(pts[a].x,pts[a].y);
+        ctx.lineTo(pts[b].x,pts[b].y);
+        ctx.stroke();
+      });
+      ctx.restore();
+
+      // Neohraněná fošna – čárkované podélné hrany.
+      if(model.unedged){
+        const longEdges=[[0,1],[3,2],[4,5],[7,6]];
+        ctx.save();
+        ctx.setLineDash([8,6]);
+        ctx.lineWidth=2;
+        ctx.strokeStyle="#2f5f3a";
+        longEdges.forEach(([a,b])=>{
+          ctx.beginPath();
+          ctx.moveTo(pts[a].x,pts[a].y);
+          ctx.lineTo(pts[b].x,pts[b].y);
+          ctx.stroke();
+        });
+        ctx.restore();
+      }
+
+      // Kóty. Offsety jsou schválně obrazovkové, aby zůstaly čitelné i po otočení.
+      drawDimension(ctx,pts[0],pts[1],model.lengthLabel,0,28,W,H);
+      drawDimension(ctx,pts[0],pts[3],model.heightLabel,-32,0,W,H);
+      drawDimension(ctx,pts[0],pts[4],model.widthLabel,-16,22,W,H);
+    }
+
+    function set3DUnavailable(message){
+      const smallMsg=$("pz-3d-message");
+      const largeMsg=$("pz-3d-message-large");
+      const smallText=$("pz-3d-message-text");
+      const largeText=$("pz-3d-message-text-large");
+      if(smallText) smallText.textContent=message;
+      if(largeText) largeText.textContent=message;
+      if(smallMsg) smallMsg.classList.add("show");
+      if(largeMsg) largeMsg.classList.add("show");
+    }
+
+    function set3DAvailable(){
+      $("pz-3d-message")?.classList.remove("show");
+      $("pz-3d-message-large")?.classList.remove("show");
+    }
+
+    function update3DVisualizer(){
+      pz3d.model=get3DModelData();
+
+      const unedged=!!(pz3d.model && pz3d.model.available && pz3d.model.unedged);
+      $("pz-3d-legend")?.classList.toggle("show",unedged);
+      $("pz-3d-legend-large")?.classList.toggle("show",unedged);
+
+      if(!pz3d.model.available){
+        set3DUnavailable(pz3d.model.reason);
+      }else{
+        set3DAvailable();
+      }
+
+      draw3DViewer(pz3d.small);
+      draw3DViewer(pz3d.large);
+    }
+
+    function init3DVisualizer(){
+      pz3d.small=create3DViewer("pz-3d-canvas","pz-3d-stage-small");
+      pz3d.large=create3DViewer("pz-3d-canvas-large","pz-3d-stage-large");
+
+      const modal=$("pz-3d-modal");
+      const expand=$("pz-3d-expand");
+      const close=$("pz-3d-close");
+      const reset=$("pz-3d-reset");
+
+      const openModal=()=>{
+        if(!modal) return;
+        copy3DCamera(pz3d.small,pz3d.large);
+        modal.classList.add("open");
+        modal.setAttribute("aria-hidden","false");
+        pz3d.modalOpen=true;
+        requestAnimationFrame(()=>{
+          pz3d.large?.resize?.();
+          draw3DViewer(pz3d.large);
+          close?.focus();
+        });
+      };
+
+      const closeModal=()=>{
+        if(!modal) return;
+        modal.classList.remove("open");
+        modal.setAttribute("aria-hidden","true");
+        pz3d.modalOpen=false;
+        expand?.focus();
+      };
+
+      if(expand) expand.addEventListener("click",openModal);
+      if(close) close.addEventListener("click",closeModal);
+      if(reset) reset.addEventListener("click",()=>reset3DViewer(pz3d.large));
+      if(modal){
+        modal.addEventListener("click",e=>{
+          if(e.target===modal) closeModal();
+        });
+      }
+      document.addEventListener("keydown",e=>{
+        if(e.key==="Escape" && pz3d.modalOpen) closeModal();
+      });
+
+      update3DVisualizer();
+    }
+
+    function updatePreview(){
+      const calc = calcCurrent();
+      const previewContent = $("pz-preview-content");
+      if(!previewContent) return;
+
+
+      const row = (label, id) => `
+        <div class="pz-kpi">
+          <span>${label}</span>
+          <strong id="${id}">—</strong>
+        </div>`;
+
+
+      const totalRow = `
+        <div class="pz-total">
+          <span>Cena celkem s DPH</span>
+          <span id="pz-with-vat">—</span>
+        </div>`;
+
+
+      const standardEnd = () =>
+        row("Mezisoučet", "pz-without-vat") +
+        row("DPH 21 %", "pz-vat") +
+        totalRow;
+
+
+      /*
+        DŮLEŽITÉ:
+        Strukturu Živého přehledu určuje SORTIMENT, ne druh dřeva.
+        Výpočetní logika zůstává stejná jako u již odladěného Smrku.
+        Druh dřeva ovlivňuje cenu přes CONFIG/getPrice().
+      */
+
+
+      // TRÁMY – u všech dřevin = 8 položek
+      if(state.product === "tramy"){
+        previewContent.innerHTML =
+          row("Běžné metry", "pz-bm-pcs") +
+          row("Objem", "pz-volume") +
+          row("Cena za kus", "pz-price-piece") +
+          row("Cena za bm", "pz-price-bm") +
+          row("Cena za m³", "pz-price-m3") +
+          standardEnd();
+      }
+
+
+      // PRKNA STEJNĚ ŠIROKÁ = 10 položek
+      else if(state.product === "prkna_stejna"){
+        previewContent.innerHTML =
+          row("Běžné metry", "pz-bm-pcs") +
+          row("Objem", "pz-volume") +
+          row("Plocha", "pz-area") +
+          row("Cena za kus", "pz-price-piece") +
+          row("Cena za bm", "pz-price-bm") +
+          row("Cena za m²", "pz-price-m2") +
+          row("Cena za m³", "pz-price-m3") +
+          standardEnd();
+      }
+
+
+      // PRKNA RŮZNĚ ŠIROKÁ – u všech dřevin = 7 položek
+      else if(
+        state.product === "prkna_ruzne_3_5" ||
+        state.product === "prkna_ruzne_08_25"
+      ){
+        previewContent.innerHTML =
+          row("Objem", "pz-volume") +
+          row("Plocha", "pz-area") +
+          row("Cena za m²", "pz-price-m2") +
+          row("Cena za m³", "pz-price-m3") +
+          standardEnd();
+      }
+
+
+      // FOŠNY – struktura se řídí provedením a typem šířky.
+      else if(state.product === "fosny"){
+        // Ohraněné + stejně široké = 8 položek
+        if(
+          calc.prod.priceMode === "fosny" &&
+          calc.vals.edgeType === "ohranene" &&
+          calc.vals.widthType === "same"
+        ){
+          previewContent.innerHTML =
+            row("Běžné metry", "pz-bm-pcs") +
+            row("Objem", "pz-volume") +
+            row("Cena za kus", "pz-price-piece") +
+            row("Cena za bm", "pz-price-bm") +
+            row("Cena za m³", "pz-price-m3") +
+            standardEnd();
+        }
+        // Ohraněné různě široké a všechny Neohraněné = 7 položek
+        else {
+          previewContent.innerHTML =
+            row("Objem", "pz-volume") +
+            row("Plocha", "pz-area") +
+            row("Cena za m²", "pz-price-m2") +
+            row("Cena za m³", "pz-price-m3") +
+            standardEnd();
+        }
+      }
+
+
+      // STŘEŠNÍ LATĚ = 8 položek
+      else if(
+        state.product === "lat_3_5" ||
+        state.product === "lat_2"
+      ){
+        previewContent.innerHTML =
+          row("Běžné metry", "pz-bm-pcs") +
+          row("Objem", "pz-volume") +
+          row("Cena za kus", "pz-price-piece") +
+          row("Cena za bm", "pz-price-bm") +
+          row("Cena za m³", "pz-price-m3") +
+          standardEnd();
+      }
+
+
+      // ODŘEZKY = 5 položek
+      else if(state.product === "odrezky"){
+        previewContent.innerHTML =
+          row("Objem", "pz-scrap-volume") +
+          row("Cena za ks", "pz-price-piece") +
+          standardEnd();
+      }
+
+
+      // Bezpečnostní fallback pro případ budoucího nového sortimentu.
+      else {
+        previewContent.innerHTML =
+          row("Běžné metry", "pz-bm-pcs") +
+          row("Objem", "pz-volume") +
+          row("Cena za kus", "pz-price-piece") +
+          row("Cena za bm", "pz-price-bm") +
+          row("Cena za m³", "pz-price-m3") +
+          standardEnd();
+      }
+
+
+      const setText = (id, text) => {
+        const el = $(id);
+        if(el) el.textContent = text;
+      };
+
+
+      setText("pz-bm-pcs", calc.met.bm > 0 ? fmtNum(calc.met.bm,1) + " bm" : "—");
+      setText("pz-volume", calc.met.volume > 0 ? fmtM3(calc.met.volume) : "—");
+      setText("pz-area", calc.met.area > 0 ? fmtNum(calc.met.area,1) + " m²" : "—");
+      setText("pz-price-piece", calc.pricePerPiece > 0 ? fmtMoney(calc.pricePerPiece) : "—");
+      setText("pz-price-bm", calc.pricePerBm > 0 ? fmtMoney(calc.pricePerBm) : "—");
+      setText("pz-price-m2", calc.pricePerM2 > 0 ? fmtMoney(calc.pricePerM2) : "—");
+      setText("pz-price-m3", calc.totalPricePerM3 > 0 ? fmtMoney(calc.totalPricePerM3) : "—");
+      setText("pz-without-vat", fmtMoney(calc.withoutVat));
+      setText("pz-vat", fmtMoney(calc.vat));
+      setText("pz-with-vat", fmtMoney(calc.withVat));
+
+
+      // Odřezky mají pevný údaj o objemu a pevnou cenu za kus.
+      if(state.product === "odrezky"){
+        setText("pz-scrap-volume", "1–2 m³");
+        setText("pz-price-piece", fmtMoney(calc.unitPrice));
+      }
+
+
+      validate();
+      update3DVisualizer();
+    }
+
+
+
+
+    function addOrUpdate(){
+      if(!validate()) return;
+      const calc = calcCurrent();
+      const item = {
+        id: state.editingId || uid(),
+        material: state.material,
+        product: state.product,
+        values: JSON.parse(JSON.stringify(state.values)),
+        services: JSON.parse(JSON.stringify(state.services)),
+        calc: JSON.parse(JSON.stringify(calc)),
+        createdAt: new Date().toISOString()
+      };
+      if(state.editingId){
+        // Upravenou položku vrátíme na její původní pozici.
+        const restoreIndex = state.editingBackup ? state.editingBackup.index : state.cart.length;
+        state.cart.splice(Math.min(restoreIndex, state.cart.length), 0, item);
+        state.editingId = null;
+        state.editingBackup = null;
+        $("pz-add-btn").textContent = "Přidat do kalkulace";
+        $("pz-cancel-edit").style.display = "none";
+        $("pz-edit-info").textContent = "";
+      } else {
+        state.cart.push(item);
+      }
+      showToast("Položka byla přidána do kalkulace");
+      bumpCart();
+      resetForm();
+      renderCart();
+      saveDraft(true);
+    }
+    function resetForm(){
+      state.material = "smrk";
+      state.product = "tramy";
+      state.values = defaultValues(productDef());
+      state.services = {};
+      renderAll();
+    }
+    function editItem(id){
+      const item = state.cart.find(i=>i.id===id);
+      if(!item || item.type === "delivery") return;
+
+      // Během úpravy položku dočasně vyjmeme z kalkulace.
+      // Při zrušení ji vrátíme přesně na původní místo.
+      const originalIndex = state.cart.findIndex(i=>i.id===id);
+      state.editingBackup = {
+        item: JSON.parse(JSON.stringify(item)),
+        index: originalIndex
+      };
+      state.cart.splice(originalIndex, 1);
+
+      state.material = item.material;
+      state.product = item.product;
+      state.values = JSON.parse(JSON.stringify(item.values));
+      state.services = JSON.parse(JSON.stringify(item.services));
+      state.editingId = id;
+      $("pz-add-btn").textContent = "Uložit změny";
+      $("pz-cancel-edit").style.display = "inline-block";
+      $("pz-edit-info").textContent = "Upravujete položku " + id + ". Položka je po dobu úpravy dočasně vyjmuta z kalkulace.";
+      closeCart();
+      renderAll();
+      window.scrollTo({top:0,behavior:"smooth"});
+    }
+    function duplicateItem(id){
+      const item = state.cart.find(i=>i.id===id);
+      if(!item) return;
+      const copy = JSON.parse(JSON.stringify(item));
+      copy.id = uid();
+      copy.createdAt = new Date().toISOString();
+      state.cart.push(copy);
+      renderCart();
+      bumpCart();
+    }
+    function removeItem(id){
+      const removed = state.cart.find(i=>i.id===id);
+      state.cart = state.cart.filter(i=>i.id!==id);
+
+      if(removed && removed.type === "delivery"){
+        state.deliveryEditingBackup = null;
+        const deliveryHead = document.querySelector(".pz-delivery-head");
+        const deliveryBody = $("pz-delivery-body");
+        const deliveryCollapsed = $("pz-delivery-collapsed");
+        if(deliveryCollapsed) deliveryCollapsed.style.display = "none";
+        if(deliveryHead) deliveryHead.style.display = "";
+        if(deliveryBody) deliveryBody.style.display = "none";
+      }
+
+      renderCart();
+    }
+    function totals(){
+      const t = {volume:0,wood:0,services:0,without:0,vat:0,with:0};
+      state.cart.forEach(i=>{
+        if(i.type === "delivery"){
+  const deliveryWithout = Number(i.priceWithoutVat) || 0;
+  const deliveryVat = deliveryWithout * CONFIG.vat;
+
+
+
+
+
+
+
+
+  t.without += deliveryWithout;
+  t.vat += deliveryVat;
+  t.with += deliveryWithout + deliveryVat;
+
+
+
+
+
+
+
+
+  return;
+}
+        t.volume += i.calc.met.volume || 0;
+        t.wood += i.calc.wood || 0;
+        t.services += i.calc.servicesPrice || 0;
+        t.without += i.calc.withoutVat || 0;
+        t.vat += i.calc.vat || 0;
+        t.with += i.calc.withVat || 0;
+      });
+      return t;
+    }
+    function renderCart(){
+      const list = $("pz-cart-list");
+      if(state.cart.length===0){
+        list.innerHTML = `<p class="pz-muted">Zatím není přidána žádná položka.</p>`;
+      } else {
+        let woodNumber = 0;
+        list.innerHTML = state.cart.map(item=>{
+          if(item.type === "delivery"){
+            const deliveryWithVat = Number(item.priceWithoutVat || 0) * (1 + CONFIG.vat);
+            return `<div class="pz-cart-item pz-delivery-cart-item pz-no-print">
+              <div class="pz-cart-title">
+                <div><strong>🚚 Doprava</strong><br><span class="pz-muted">${item.street}, ${item.postcode} ${item.city}</span></div>
+                <div><strong>${fmtMoney(deliveryWithVat)} s DPH</strong></div>
+              </div>
+              <div class="pz-detail-grid">
+                <div class="pz-detail"><span>Počet kilometrů</span><strong>${fmtNum(Number(item.km || 0), 1)} km</strong></div>
+                <div class="pz-detail"><span>Cena za kilometr</span><strong>${fmtMoney(Number(item.rate || 0))} / km</strong></div>
+                <div class="pz-detail"><span>Cena dopravy bez DPH</span><strong>${fmtMoney(Number(item.priceWithoutVat || 0))}</strong></div>
+              </div>
+              <div class="pz-actions">
+                <button class="pz-btn secondary" type="button" data-edit-delivery="${item.id}">Upravit</button>
+                <button class="pz-btn danger" type="button" data-remove="${item.id}">Odstranit</button>
+              </div>
+            </div>`;
+          }
+
+          woodNumber++;
+          const c = item.calc;
+
+          const serviceLabels =
+            c.serviceRows && c.serviceRows.length
+              ? c.serviceRows.map(service => service.label)
+              : [];
+
+          const servicesHtml = serviceLabels.length
+            ? `<span class="pz-muted"><strong>Doplňkové služby:</strong><br>${serviceLabels.map(label => `• ${label}`).join("<br>")}</span>`
+            : `<span class="pz-muted"><strong>Doplňkové služby:</strong> Bez doplňkových služeb</span>`;
+
+          const pdfServices = serviceLabels.length
+            ? serviceLabels.join(", ")
+            : "Bez doplňkových služeb";
+
+          return `<div class="pz-cart-item pz-pdf-item">
+            <div class="pz-cart-title pz-screen-item-content">
+              <div>
+                <strong>${woodNumber}. ${titleFor(item)}</strong><br>
+                <span class="pz-muted">${descFor(c)}</span><br>
+                <span class="pz-muted">ID: ${item.id}</span><br>
+                ${servicesHtml}
+              </div>
+              <div><strong>${fmtMoney(c.withVat)} s DPH</strong></div>
+            </div>
+
+            <div class="pz-print-only pz-pdf-item-content">
+              <div class="pz-pdf-item-number">Položka č. ${woodNumber}</div>
+              <div class="pz-pdf-grid">
+                <div class="pz-pdf-box">
+                  <span>DRUH</span>
+                  <strong>${CONFIG.materials[item.material].label}</strong>
+                </div>
+                <div class="pz-pdf-box">
+                  <span>TYP</span>
+                  <strong>${CONFIG.materials[item.material].products[item.product].label}</strong>
+                </div>
+                <div class="pz-pdf-box">
+                  <span>ROZMĚRY A KUSY</span>
+                  <strong>${descFor(c)}</strong>
+                </div>
+                <div class="pz-pdf-box">
+                  <span>SLUŽBY</span>
+                  <strong>${pdfServices}</strong>
+                </div>
+                <div class="pz-pdf-box">
+                  <span>CENA POLOŽKY S DPH</span>
+                  <strong>${fmtMoney(c.withVat)}</strong>
+                </div>
+                <div class="pz-pdf-box">
+                  <span>ID POLOŽKY</span>
+                  <strong>${item.id}</strong>
+                </div>
+              </div>
+            </div>
+
+            <div class="pz-actions">
+              <button class="pz-btn secondary" type="button" data-edit="${item.id}">Upravit</button>
+              <button class="pz-btn secondary" type="button" data-dup="${item.id}">Duplikovat</button>
+              <button class="pz-btn danger" type="button" data-remove="${item.id}">Odstranit</button>
+            </div>
+          </div>`;
+        }).join("");
+      }
+      document.querySelectorAll("[data-edit]").forEach(b=>b.onclick=()=>editItem(b.dataset.edit));
+      document.querySelectorAll("[data-edit-delivery]").forEach(b=>b.onclick=()=>editDeliveryFromCart(b.dataset.editDelivery));
+      document.querySelectorAll("[data-dup]").forEach(b=>b.onclick=()=>duplicateItem(b.dataset.dup));
+      document.querySelectorAll("[data-remove]").forEach(b=>b.onclick=()=>removeItem(b.dataset.remove));
+      updateTotals();
+      saveCalculationState();
+    }
+    function updateTotals(){
+      const t = totals();
+      $("pz-cart-count").textContent = state.cart.length;
+      $("pz-cart-total-top").textContent = fmtMoney(t.with) + " s DPH";
+      $("pz-sum-count").textContent = state.cart.length;
+      $("pz-sum-volume").textContent = fmtM3(t.volume);
+      $("pz-sum-without").textContent = fmtMoney(t.without);
+      $("pz-sum-vat").textContent = fmtMoney(t.vat);
+      $("pz-sum-with").textContent = fmtMoney(t.with);
+      $("pz-modal-volume").textContent = fmtM3(t.volume);
+      $("pz-modal-wood").textContent = fmtMoney(t.wood);
+      $("pz-modal-services").textContent = fmtMoney(t.services);
+      $("pz-modal-transport").textContent = fmtMoney(
+  state.cart
+    .filter(i => i.type === "delivery")
+    .reduce((sum, i) => sum + (Number(i.priceWithoutVat) || 0), 0)
+);
+      $("pz-modal-total").textContent = fmtMoney(t.with);
+    }
+    function renderPdfDelivery(){
+      const section = $("pz-pdf-delivery-section");
+      const grid = $("pz-pdf-delivery-grid");
+      if(!section || !grid) return;
+
+      // PDF sekce dopravy musí být na obrazovce vždy skrytá.
+      // Zobrazuje ji až @media print. Odstraníme případný starý inline display,
+      // který by jinak mohl rozbít vzhled souhrnu kalkulace na obrazovce.
+      section.style.removeProperty("display");
+
+      const delivery = state.cart.find(i => i.type === "delivery");
+      if(!delivery){
+        grid.innerHTML = `
+          <div class="pz-pdf-box pz-pdf-box-wide">
+            <span>DOPRAVA</span>
+            <strong>Doprava není součástí kalkulace.</strong>
+          </div>`;
+        return;
+      }
+
+      const deliveryWithVat = Number(delivery.priceWithoutVat || 0) * (1 + CONFIG.vat);
+      const typeSelect = $("pz-delivery-type");
+      let typeLabel = delivery.deliveryType || "";
+      if(typeSelect){
+        const opt = Array.from(typeSelect.options || []).find(o => o.value === delivery.deliveryType);
+        if(opt) typeLabel = opt.textContent.trim();
+      }
+
+      grid.innerHTML = `
+        <div class="pz-pdf-box pz-pdf-box-wide">
+          <span>DORUČOVACÍ ADRESA</span>
+          <strong>${delivery.street}, ${delivery.postcode} ${delivery.city}</strong>
+        </div>
+        <div class="pz-pdf-box">
+          <span>TYP DOPRAVY</span>
+          <strong>${typeLabel}</strong>
+        </div>
+        <div class="pz-pdf-box">
+          <span>VZDÁLENOST</span>
+          <strong>${Number(delivery.km || 0).toLocaleString("cs-CZ", {maximumFractionDigits:1})} km</strong>
+        </div>
+        <div class="pz-pdf-box">
+          <span>CENA ZA KM</span>
+          <strong>${fmtMoney(Number(delivery.rate || 0))} / km</strong>
+        </div>
+        <div class="pz-pdf-box">
+          <span>CENA DOPRAVY S DPH</span>
+          <strong>${fmtMoney(deliveryWithVat)}</strong>
+        </div>`;
+    }
+
+    function openCart(){ $("pz-cart-modal").classList.add("open"); $("pz-cart-modal").setAttribute("aria-hidden","false"); renderCart(); }
+    function closeCart(){ $("pz-cart-modal").classList.remove("open"); $("pz-cart-modal").setAttribute("aria-hidden","true"); }
+    function showToast(text){ const el=$("pz-toast"); el.textContent=text; el.classList.add("show"); setTimeout(()=>el.classList.remove("show"),2200); }
+    function bumpCart(){ const b=$("pz-open-cart"); b.classList.add("pz-bump"); setTimeout(()=>b.classList.remove("pz-bump"),450); }
+    function cleanupPrintIsolation(){
+      const old = document.getElementById("pz-print-isolation");
+      if(old) old.remove();
+    }
+
+    function printCalc(){
+      const woodItems = state.cart.filter(i => i.type !== "delivery");
+      if(woodItems.length===0){ showToast("Nejdříve přidejte položku."); return; }
+
+      renderPdfDelivery();
+      openCart();
+
+      /*
+        Webnode má vlastní menu, widgety a další prvky mimo kalkulátor.
+        Kdybychom je pouze skryli přes visibility, stále zabírají místo
+        a mobilní tisk může vytvořit několik prázdných stran.
+        Proto pro tisk vytvoříme samostatnou kopii košíku přímo pod <body>.
+      */
+      cleanupPrintIsolation();
+
+      const source = $("pz-cart-modal");
+      const isolation = document.createElement("div");
+      isolation.id = "pz-print-isolation";
+
+      const clone = source.cloneNode(true);
+      clone.classList.add("open");
+      clone.setAttribute("aria-hidden","false");
+
+      isolation.appendChild(clone);
+      document.body.appendChild(isolation);
+
+      const cleanup = ()=>{
+        cleanupPrintIsolation();
+        window.removeEventListener("afterprint", cleanup);
+      };
+      window.addEventListener("afterprint", cleanup);
+
+      /* Dva snímky dají mobilnímu prohlížeči čas přepočítat tiskový layout. */
+      requestAnimationFrame(()=>{
+        requestAnimationFrame(()=>{
+          window.print();
+
+          /* Záloha pro prohlížeče, které afterprint neposílají spolehlivě. */
+          setTimeout(()=>{
+            if(!window.matchMedia || !window.matchMedia("print").matches){
+              cleanup();
+            }
+          },1200);
+        });
+      });
+    }
+    function saveDraft(clear){
+      if(clear){ localStorage.removeItem("pzDraft"); return; }
+      localStorage.setItem("pzDraft", JSON.stringify({
+        material:state.material, product:state.product, values:state.values, services:state.services, savedAt:Date.now()
+      }));
+    }
+    function loadDraft(){
+      try{
+        const raw = localStorage.getItem("pzDraft");
+        if(!raw) return;
+        const d = JSON.parse(raw);
+        if(Date.now() - d.savedAt > 1000*60*60*24*7) return;
+        if(confirm("Našli jsme nedokončenou kalkulaci. Chcete ji obnovit?")){
+          state.material=d.material; state.product=d.product; state.values=d.values; state.services=d.services||{};
+        } else {
+          localStorage.removeItem("pzDraft");
+        }
+      }catch(e){}
+    }
+    
+    let deliveryAddressTimer = null;
+let selectedDeliveryCoords = null;
+    let routeMap = null;
+let deliveryMarker = null;
+let deliveryRouteLine = null;
+
+
+
+
+
+
+
+
+function setupDeliveryAutocomplete(){
+  const input = $("pz-delivery-street");
+  const suggestions = $("pz-delivery-suggestions");
+  const status = $("pz-delivery-status");
+  const streetInput = $("pz-delivery-street");
+  const cityInput = $("pz-delivery-city");
+  const postcodeInput = $("pz-delivery-postcode");
+  const citySuggestions = $("pz-delivery-city-suggestions");
+  const postcodeSuggestions = $("pz-delivery-postcode-suggestions");
+
+
+
+
+
+
+
+
+  if(
+    !input ||
+    !suggestions ||
+    !status ||
+    !streetInput ||
+    !cityInput ||
+    !citySuggestions ||
+    !postcodeSuggestions ||
+    !postcodeInput
+  ) return;
+
+
+
+
+
+
+
+
+  function clearSelectedDeliveryAddress(){
+  selectedDeliveryCoords = null;
+}
+
+
+
+
+
+
+
+
+  input.addEventListener("input", () => {
+    clearTimeout(deliveryAddressTimer);
+    clearSelectedDeliveryAddress();
+    const check = input.parentElement.querySelector(".pz-field-check");
+
+
+
+
+
+
+
+
+if (input.value.trim()) {
+  check.textContent = "";
+  check.classList.remove("is-visible");
+  check.classList.add("is-invalid", "is-visible");
+} else {
+  check.classList.remove("is-invalid", "is-visible");
+  check.textContent = "✓";
+}
+updateDeliveryAddButton();
+    const query = input.value.trim();
+
+
+
+
+
+
+
+
+    if(query.length < 3){
+      suggestions.innerHTML = "";
+      suggestions.style.display = "none";
+      status.textContent = "Napište alespoň 3 znaky.";
+      return;
+    }
+
+
+
+
+
+
+
+
+    status.textContent = "Hledám adresu…";
+
+
+
+
+
+
+
+
+    deliveryAddressTimer = setTimeout(() => {
+      searchDeliveryAddresses(query);
+    }, 350);
+  });
+
+
+
+
+
+
+
+
+  document.addEventListener("click", event => {
+    if(
+      event.target !== input &&
+      !suggestions.contains(event.target)
+    ){
+      suggestions.style.display = "none";
+    }
+  });
+  
+cityInput.addEventListener("input", () => {
+  clearTimeout(deliveryAddressTimer);
+  clearSelectedDeliveryAddress();
+  selectedDeliveryCoords = null;
+  const check = cityInput.parentElement.querySelector(".pz-field-check");
+
+
+
+
+
+
+
+
+if (cityInput.value.trim()) {
+  check.textContent = "";
+  check.classList.remove("is-visible");
+  check.classList.add("is-invalid", "is-visible");
+} else {
+  check.classList.remove("is-invalid", "is-visible");
+  check.textContent = "✓";
+}
+  updateDeliveryAddButton();
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  const query = cityInput.value.trim();
+
+
+
+
+
+
+
+
+  if (query.length < 2) {
+    citySuggestions.innerHTML = "";
+    citySuggestions.style.display = "none";
+    return;
+  }
+
+
+
+
+
+
+
+
+  deliveryAddressTimer = setTimeout(() => {
+    searchDeliveryCities(query);
+  }, 350);
+});
+  postcodeInput.addEventListener("input", () => {
+  clearTimeout(deliveryAddressTimer);
+  clearSelectedDeliveryAddress();
+
+
+
+
+
+
+
+
+  selectedDeliveryCoords = null;
+   const check = $("pz-delivery-postcode").parentElement.querySelector(".pz-field-check");
+
+
+
+
+
+
+
+
+if (postcodeInput.value.trim()) {
+  check.textContent = "";
+  check.classList.remove("is-visible");
+  check.classList.add("is-invalid", "is-visible");
+} else {
+  check.classList.remove("is-invalid", "is-visible");
+  check.textContent = "✓";
+} 
+updateDeliveryAddButton();
+
+
+
+
+
+
+
+
+  const query = postcodeInput.value.trim();
+
+
+
+
+
+
+
+
+  if (query.length < 2) {
+    postcodeSuggestions.innerHTML = "";
+    postcodeSuggestions.style.display = "none";
+    return;
+  }
+
+
+
+
+
+
+
+
+  deliveryAddressTimer = setTimeout(() => {
+    searchDeliveryPostcodes(query);
+  }, 350);
+});
+}
+async function searchDeliveryCities(query){
+  const suggestions = $("pz-delivery-city-suggestions");
+
+
+
+
+
+
+
+
+  if (!suggestions) return;
+
+
+
+
+
+
+
+
+  try {
+    const url =
+      "https://konfigurator-reziva-pila.vercel.app/api/autocomplete?text=" +
+      encodeURIComponent(query)
+
+
+
+
+
+
+
+
+    const response = await fetch(url);
+    const data = await response.json();
+
+
+
+
+
+
+
+
+    if (!response.ok) {
+      throw new Error("Chyba našeptávače: " + response.status);
+    }
+
+
+
+
+
+
+
+
+    const features = data.features || [];
+
+
+
+
+
+
+
+
+    const cities = [...new Set(
+      features.map(feature => {
+        const p = feature.properties || {};
+
+
+
+
+
+
+
+
+        return (
+          p.city ||
+          p.town ||
+          p.village ||
+          p.municipality ||
+          p.locality ||
+          p.localadmin ||
+          ""
+        );
+      }).filter(Boolean)
+    )].slice(0, 5);
+
+
+
+
+
+
+
+
+    suggestions.innerHTML = "";
+
+
+
+
+
+
+
+
+    if (!cities.length) {
+      suggestions.style.display = "none";
+      return;
+    }
+
+
+
+
+
+
+
+
+    cities.forEach(city => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = city;
+
+
+
+
+
+
+
+
+      button.addEventListener("click", () => {
+        $("pz-delivery-city").value = city;
+        const check = $("pz-delivery-city").parentElement.querySelector(".pz-field-check");
+check.classList.remove("is-invalid");
+check.classList.add("is-visible");
+check.textContent = "✓";
+updateDeliveryAddButton();
+        suggestions.innerHTML = "";
+        suggestions.style.display = "none";
+      });
+
+
+
+
+
+
+
+
+      suggestions.appendChild(button);
+    });
+
+
+
+
+
+
+
+
+    suggestions.style.display = "block";
+
+
+
+
+
+
+
+
+  } catch (error) {
+    console.error("Chyba našeptávání města:", error);
+    suggestions.innerHTML = "";
+    suggestions.style.display = "none";
+  }
+}
+    
+ async function searchDeliveryPostcodes(query){
+  const suggestions = $("pz-delivery-postcode-suggestions");
+
+
+
+
+
+
+
+
+  if (!suggestions) return;
+
+
+
+
+
+
+
+
+  try {
+    const url =
+      "https://konfigurator-reziva-pila.vercel.app/api/autocomplete?text=" +
+      encodeURIComponent(query.replace(/\s/g, ""))
+
+
+
+
+
+
+
+
+    const response = await fetch(url);
+    const data = await response.json();
+
+
+
+
+
+
+
+
+    if (!response.ok) {
+      throw new Error("Chyba našeptávače: " + response.status);
+    }
+
+
+
+
+
+
+
+
+    const features = data.features || [];
+
+
+
+
+
+
+
+
+    const postcodes = [...new Set(
+      features.map(feature => {
+        const p = feature.properties || {};
+        return p.postcode || p.postalcode || "";
+      }).filter(Boolean)
+    )].slice(0, 5);
+
+
+
+
+
+
+
+
+    suggestions.innerHTML = "";
+
+
+
+
+
+
+
+
+    if (!postcodes.length) {
+      suggestions.style.display = "none";
+      return;
+    }
+
+
+
+
+
+
+
+
+    postcodes.forEach(postcode => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = postcode;
+
+
+
+
+
+
+
+
+      button.addEventListener("click", () => {
+        $("pz-delivery-postcode").value = postcode;
+        const check = $("pz-delivery-postcode").parentElement.querySelector(".pz-field-check");
+check.classList.remove("is-invalid");
+check.classList.add("is-visible");
+check.textContent = "✓";
+updateDeliveryAddButton();
+        suggestions.innerHTML = "";
+        suggestions.style.display = "none";
+      });
+
+
+
+
+
+
+
+
+      suggestions.appendChild(button);
+    });
+
+
+
+
+
+
+
+
+    suggestions.style.display = "block";
+
+
+
+
+
+
+
+
+  } catch (error) {
+    console.error("Chyba našeptávání PSČ:", error);
+    suggestions.innerHTML = "";
+    suggestions.style.display = "none";
+  }
+}
+    
+async function searchDeliveryAddresses(query){
+  const suggestions = $("pz-delivery-suggestions");
+  const status = $("pz-delivery-status");
+
+
+
+
+
+
+
+
+  if(!suggestions || !status) return;
+
+
+
+
+
+
+
+
+  status.textContent = "Hledám adresu…";
+
+
+
+
+
+
+
+
+  try{
+    const url =
+"https://konfigurator-reziva-pila.vercel.app/api/autocomplete?text=" +
+encodeURIComponent(query);
+    const response = await fetch(url);
+
+
+
+
+
+
+
+
+    if(!response.ok){
+      throw new Error("Chyba našeptávače: " + response.status);
+    }
+
+
+
+
+
+
+
+
+    const data = await response.json();
+    const features = data.features || [];
+
+
+
+
+
+
+
+
+    if(!features.length){
+      suggestions.innerHTML = "";
+      suggestions.style.display = "none";
+      status.textContent =
+        "Adresa nebyla nalezena. Zkuste doplnit obec nebo PSČ.";
+      return;
+    }
+
+
+
+
+
+
+
+
+    suggestions.innerHTML = "";
+
+
+
+
+
+
+
+
+    features.forEach(feature => {
+      const button = document.createElement("button");
+
+
+
+
+
+
+
+
+      button.type = "button";
+      button.textContent =
+        feature.properties?.label || "Neznámá adresa";
+
+
+
+
+
+
+
+
+      button.addEventListener("click", () => {
+        selectDeliveryAddress(feature);
+      });
+
+
+
+
+
+
+
+
+      suggestions.appendChild(button);
+    });
+
+
+
+
+
+
+
+
+    suggestions.style.display = "block";
+    suggestions.style.border = "";
+suggestions.style.padding = "";
+suggestions.style.margin = "";
+    
+}catch(error){
+  console.error(error);
+
+
+
+
+
+
+
+
+  suggestions.innerHTML = "";
+suggestions.style.display = "none";
+suggestions.style.border = "none";
+suggestions.style.padding = "0";
+suggestions.style.margin = "0";
+  status.textContent = "Chyba našeptávače: " + error.message;
+}
+}
+
+
+
+
+
+
+
+
+async function selectDeliveryAddress(feature){
+  const properties = feature.properties || {};
+  const coordinates = feature.geometry?.coordinates || null;
+
+
+
+
+
+
+
+
+  const input = $("pz-delivery-street");
+  const suggestions = $("pz-delivery-suggestions");
+  const status = $("pz-delivery-status");
+  const streetInput = $("pz-delivery-street");
+  const cityInput = $("pz-delivery-city");
+  const postcodeInput = $("pz-delivery-postcode");
+
+
+
+
+
+
+
+
+  if(
+    !input ||
+    !suggestions ||
+    !status ||
+    !streetInput ||
+    !cityInput ||
+    !postcodeInput
+  ) return;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  const city =
+  properties.city ||
+  properties.town ||
+  properties.village ||
+  properties.municipality ||
+  properties.locality ||
+  properties.localadmin ||
+  "";
+
+
+
+
+
+
+
+
+  const streetValue = properties.street
+  ? [properties.street, properties.housenumber].filter(Boolean).join(" ")
+  : [city, properties.housenumber].filter(Boolean).join(" ");
+
+
+
+
+
+
+
+
+streetInput.value = streetValue;
+cityInput.value = city;
+postcodeInput.value = properties.postcode || "";
+  streetInput.classList.remove("pz-required-error");
+cityInput.classList.remove("pz-required-error");
+postcodeInput.classList.remove("pz-required-error");
+  const streetCheck = streetInput.parentElement.querySelector(".pz-field-check");
+
+
+
+
+
+
+
+
+streetCheck.classList.remove("is-invalid");
+streetCheck.classList.add("is-visible");
+streetCheck.textContent = "✓";
+  document.querySelectorAll(".pz-field-check").forEach(check => {
+  check.classList.add("is-visible");
+});
+updateDeliveryAddButton();
+  selectedDeliveryCoords = coordinates;
+  if (
+  routeMap &&
+  Array.isArray(coordinates) &&
+  coordinates.length >= 2
+) {
+  const destinationPoint = [
+    coordinates[1],
+    coordinates[0]
+  ];
+
+
+
+
+
+
+
+
+  if (deliveryMarker) {
+    routeMap.removeLayer(deliveryMarker);
+  }
+
+
+
+
+
+
+
+
+  const deliveryRedIcon = L.icon({
+  iconUrl: "https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png",
+  shadowUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png",
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  tooltipAnchor: [16, -20],
+  shadowSize: [41, 41]
+});
+
+
+
+
+
+
+
+
+deliveryMarker = L.marker(destinationPoint, {
+  icon: deliveryRedIcon
+})
+  .addTo(routeMap)
+  .bindTooltip("Místo doručení", {
+    permanent: true,
+    direction: "right",
+    offset: [2, 0],
+    className: "pz-map-label"
+  });
+}
+  const kmInput = $("pz-delivery-km");
+
+
+
+
+
+
+
+
+if (!Array.isArray(coordinates) || coordinates.length < 2) {
+  if (kmInput) kmInput.value = "0 km";
+  status.textContent = "Vybraná adresa nemá platné souřadnice.";
+  return;
+}
+
+
+
+
+
+
+
+
+try {
+  status.textContent = "Počítám vzdálenost…";
+
+
+
+
+
+
+
+
+  const routeUrl =
+    "https://konfigurator-reziva-pila.vercel.app/api/route" +
+    "?startLat=" + encodeURIComponent(START_COORDS[1]) +
+    "&startLon=" + encodeURIComponent(START_COORDS[0]) +
+    "&endLat=" + encodeURIComponent(coordinates[1]) +
+    "&endLon=" + encodeURIComponent(coordinates[0]);
+
+
+
+
+
+
+
+
+  const routeResponse = await fetch(routeUrl);
+  const routeData = await routeResponse.json();
+  console.log("ROUTE DATA:", routeData);
+
+
+
+
+
+
+
+
+  if (!routeResponse.ok) {
+    throw new Error(routeData.error || "Výpočet trasy selhal.");
+  }
+
+
+
+
+
+
+
+
+// ===== VYKRESLENÍ TRASY DO MAPY =====
+if (routeMap && Array.isArray(routeData.geometry)) {
+
+
+
+
+
+
+
+
+  // Geoapify vrací geometry jako pole jednotlivých úseků trasy.
+  // Všechny úseky spojíme do jednoho seznamu bodů.
+  const routePoints = routeData.geometry.flat();
+
+
+
+
+
+
+
+
+  const routeLatLngs = routePoints
+    .filter(point =>
+      point &&
+      Number.isFinite(Number(point.lat)) &&
+      Number.isFinite(Number(point.lon))
+    )
+    .map(point => [
+      Number(point.lat),
+      Number(point.lon)
+    ]);
+
+
+
+
+
+
+
+
+  if (routeLatLngs.length > 1) {
+
+
+
+
+
+
+
+
+    // Pokud už je na mapě stará trasa, odstraníme ji.
+    if (window.pzDeliveryRouteLine) {
+      routeMap.removeLayer(window.pzDeliveryRouteLine);
+    }
+
+
+
+
+
+
+
+
+    // Vykreslení nové trasy.
+    window.pzDeliveryRouteLine = L.polyline(routeLatLngs, {
+      color: "#d62828",
+      weight: 5,
+      opacity: 0.9
+    }).addTo(routeMap);
+
+
+
+
+
+
+
+
+    // Oddálení mapy tak, aby byla vidět celá trasa.
+    routeMap.fitBounds(
+      window.pzDeliveryRouteLine.getBounds(),
+      {
+        padding: [35, 35]
+      }
+    );
+  }
+}
+  
+  const distanceKm = Number(routeData.distanceKm);
+
+
+
+
+
+
+
+
+  if (!Number.isFinite(distanceKm)) {
+    throw new Error("Server nevrátil platnou vzdálenost.");
+  }
+
+
+
+
+
+
+
+
+  if (kmInput) {
+    kmInput.value = distanceKm.toFixed(1) + " km";
+    const typeSelect = $("pz-delivery-type");
+
+
+
+
+
+
+
+
+if (typeSelect) {
+  typeSelect.dispatchEvent(new Event("change"));
+}
+  }
+
+
+
+
+
+
+
+
+} catch (error) {
+  console.error("Chyba výpočtu trasy:", error);
+
+
+
+
+
+
+
+
+  if (kmInput) {
+    kmInput.value = "0 km";
+  }
+
+
+
+
+
+
+
+
+  status.textContent =
+    "Adresa byla vybrána, ale vzdálenost se nepodařilo spočítat.";
+}
+
+
+
+
+
+
+
+
+  suggestions.innerHTML = "";
+  suggestions.style.display = "none";
+
+
+
+
+
+
+
+
+  status.textContent = "Adresa byla vybrána.";
+}
+    function setupDeliveryChoice(){
+  const section = $("pz-delivery-section");
+  const body = $("pz-delivery-body");
+  const yesButton = $("pz-delivery-yes");
+  const noButton = $("pz-delivery-no");
+
+
+
+
+
+
+
+
+  if(!section || !body || !yesButton || !noButton) return;
+
+
+
+
+
+
+
+
+  function setDeliveryChoice(choice){
+    section.classList.remove("is-yes", "is-no");
+    yesButton.classList.remove("active");
+    noButton.classList.remove("active");
+
+
+
+
+
+
+
+
+    yesButton.setAttribute("aria-pressed", "false");
+    noButton.setAttribute("aria-pressed", "false");
+    body.setAttribute("aria-hidden", "true");
+
+
+
+
+
+
+
+
+    if(choice === "yes"){
+      section.classList.add("is-yes");
+      yesButton.classList.add("active");
+      yesButton.setAttribute("aria-pressed", "true");
+      body.setAttribute("aria-hidden", "false");
+    }
+
+
+
+
+
+
+
+
+    if(choice === "no"){
+      section.classList.add("is-no");
+      noButton.classList.add("active");
+      noButton.setAttribute("aria-pressed", "true");
+    }
+  }
+
+
+
+
+
+
+
+
+  yesButton.onclick = () => setDeliveryChoice("yes");
+
+  noButton.onclick = () => {
+    /* V31: volba NE znamená úplné zrušení dopravy. */
+    setDeliveryChoice("no");
+
+    /* Odebrat dopravu z košíku i případnou zálohu rozpracované úpravy. */
+    state.cart = state.cart.filter(item => item.type !== "delivery");
+    state.deliveryEditingBackup = null;
+
+    /* Vymazat všechna pole dopravy. */
+    const street = $("pz-delivery-street");
+    const city = $("pz-delivery-city");
+    const postcode = $("pz-delivery-postcode");
+    const type = $("pz-delivery-type");
+    const km = $("pz-delivery-km");
+    const rate = $("pz-delivery-rate");
+    const price = $("pz-delivery-price");
+    const gdpr = $("pz-delivery-gdpr");
+    const status = $("pz-delivery-status");
+    const collapsed = $("pz-delivery-collapsed");
+    const collapsedAddress = $("pz-delivery-collapsed-address");
+
+    if(street) street.value = "";
+    if(city) city.value = "";
+    if(postcode) postcode.value = "";
+    if(type) type.value = "";
+    if(km) km.value = "0 km";
+    if(rate) rate.value = "0 Kč/km";
+    if(price) price.textContent = "0 Kč";
+    if(gdpr) gdpr.checked = false;
+    if(status) status.textContent = "";
+    if(collapsed) collapsed.style.display = "none";
+    if(collapsedAddress) collapsedAddress.textContent = "";
+
+    /* Zavřít našeptávače a odstranit validační stavy/fajfky. */
+    [
+      $("pz-delivery-suggestions"),
+      $("pz-delivery-city-suggestions"),
+      $("pz-delivery-postcode-suggestions")
+    ].forEach(el => {
+      if(el){
+        el.innerHTML = "";
+        el.style.display = "none";
+      }
+    });
+
+    section.querySelectorAll(".pz-required-error").forEach(el => el.classList.remove("pz-required-error"));
+    section.querySelectorAll(".pz-field-check").forEach(el => {
+      el.classList.remove("is-visible", "is-invalid");
+    });
+
+    selectedDeliveryCoords = null;
+
+    /* Vyčistit trasu a značku z mapy, pokud už byly vytvořené. */
+    if(routeMap && deliveryRouteLine){
+      try{ routeMap.removeLayer(deliveryRouteLine); }catch(e){}
+      deliveryRouteLine = null;
+    }
+    if(routeMap && deliveryMarker){
+      try{ routeMap.removeLayer(deliveryMarker); }catch(e){}
+      deliveryMarker = null;
+    }
+
+    /* Přepočítat košík a uložený stav. */
+    renderCart();
+
+    /* V32: po volbě NE dopravu opravdu vizuálně sbalit.
+       Přepíšeme stav až po renderCart(), aby ji žádné další vykreslení znovu nerozbalilo. */
+    section.classList.remove("is-yes");
+    section.classList.add("is-no");
+    if(collapsed) collapsed.style.display = "none";
+  };
+
+
+
+
+
+
+
+
+  setDeliveryChoice(null);
+}
+  function setupDeliveryType(){
+  const typeSelect = $("pz-delivery-type");
+  const rateInput = $("pz-delivery-rate");
+
+
+
+
+
+
+
+
+  if(!typeSelect || !rateInput) return;
+
+
+
+
+
+
+
+
+  const deliveryRates = {
+    car: 50,
+    "small-trailer": 100,
+    "small-trailer-unloading": 150,
+    "large-trailer": 100,
+    "large-trailer-unloading": 150
+  };
+
+
+
+
+
+
+
+
+  function updateDeliveryRate(){
+  const selectedType = typeSelect.value;
+  const rate = deliveryRates[selectedType] || 0;
+
+
+
+
+
+
+
+
+  rateInput.value = rate.toLocaleString("cs-CZ") + " Kč/km";
+
+
+
+
+
+
+
+
+  const kmInput = $("pz-delivery-km");
+  const priceOutput = $("pz-delivery-price");
+
+
+
+
+
+
+
+
+  const km = parseFloat(
+    String(kmInput?.value || "0")
+      .replace(",", ".")
+      .replace(/[^\d.]/g, "")
+  ) || 0;
+
+
+
+
+
+
+
+
+  const deliveryPrice = km * rate;
+
+
+
+
+
+
+
+
+  if(priceOutput){
+    priceOutput.textContent =
+      deliveryPrice.toLocaleString("cs-CZ") + " Kč";
+  }
+}
+
+
+
+
+
+
+
+
+  typeSelect.addEventListener("change", updateDeliveryRate);
+
+
+
+
+
+
+
+
+  updateDeliveryRate();
+}
+function openDeliveryEditor(removeFromCart){
+  const deliveryHead = document.querySelector(".pz-delivery-head");
+  const deliveryBody = $("pz-delivery-body");
+  const deliveryCollapsed = $("pz-delivery-collapsed");
+
+  if(removeFromCart){
+    const idx = state.cart.findIndex(item => item.type === "delivery");
+    if(idx >= 0){
+      state.deliveryEditingBackup = {
+        item: JSON.parse(JSON.stringify(state.cart[idx])),
+        index: idx
+      };
+      state.cart.splice(idx, 1);
+      renderCart();
+    }
+  }
+
+  if(deliveryCollapsed) deliveryCollapsed.style.display = "none";
+  if(deliveryHead) deliveryHead.style.display = "";
+  if(deliveryBody) deliveryBody.style.display = "grid";
+}
+
+function cancelDeliveryEdit(){
+  if(state.deliveryEditingBackup){
+    const b = state.deliveryEditingBackup;
+    state.cart.splice(Math.min(b.index, state.cart.length), 0, b.item);
+    state.deliveryEditingBackup = null;
+    renderCart();
+  }
+
+  const deliveryHead = document.querySelector(".pz-delivery-head");
+  const deliveryBody = $("pz-delivery-body");
+  const deliveryCollapsed = $("pz-delivery-collapsed");
+  if(deliveryHead) deliveryHead.style.display = "none";
+  if(deliveryBody) deliveryBody.style.display = "none";
+  if(deliveryCollapsed) deliveryCollapsed.style.display = "flex";
+}
+
+function editDeliveryFromCart(){
+  closeCart();
+  openDeliveryEditor(true);
+  window.scrollTo({top:0,behavior:"smooth"});
+}
+
+function setupDeliveryEdit(){
+  const editButton = $("pz-delivery-edit");
+  const deliveryHead = document.querySelector(".pz-delivery-head");
+  if(!editButton) return;
+
+  editButton.addEventListener("click", () => openDeliveryEditor(true));
+
+  // Při úpravě dopravy lze kliknout na horní pruh a úpravu zavřít.
+  // Původní doprava se tím vrátí do kalkulace bez nového upozornění.
+  deliveryHead?.addEventListener("click", event => {
+    if(!state.deliveryEditingBackup) return;
+    if(event.target.closest("button, input, select, a")) return;
+    cancelDeliveryEdit();
+  });
+}
+    function updateDeliveryAddButton(){
+  const addButton = $("pz-add-delivery");
+  const streetInput = $("pz-delivery-street");
+  const cityInput = $("pz-delivery-city");
+  const postcodeInput = $("pz-delivery-postcode");
+
+
+
+
+
+
+
+
+  if(!addButton || !streetInput || !cityInput || !postcodeInput) return;
+
+
+
+
+
+
+
+
+  const streetCheck = streetInput.parentElement.querySelector(".pz-field-check");
+  const cityCheck = cityInput.parentElement.querySelector(".pz-field-check");
+  const postcodeCheck = postcodeInput.parentElement.querySelector(".pz-field-check");
+
+
+
+
+
+
+
+
+  const isGreenCheck = check =>
+    check &&
+    check.classList.contains("is-visible") &&
+    !check.classList.contains("is-invalid");
+
+
+
+
+
+
+
+
+  const addressIsValid =
+    streetInput.value.trim() !== "" &&
+    cityInput.value.trim() !== "" &&
+    postcodeInput.value.trim() !== "" &&
+    isGreenCheck(streetCheck) &&
+    isGreenCheck(cityCheck) &&
+    isGreenCheck(postcodeCheck);
+
+
+
+
+
+
+
+
+  addButton.disabled = !addressIsValid;
+}
+  function setupDeliveryValidation(){
+  const addButton = $("pz-add-delivery");
+  const streetInput = $("pz-delivery-street");
+  const cityInput = $("pz-delivery-city");
+  const postcodeInput = $("pz-delivery-postcode");
+  const typeSelect = $("pz-delivery-type");
+  const gdprInput = $("pz-delivery-gdpr");
+  const consent = document.querySelector(".pz-delivery-consent");
+
+
+
+
+
+
+
+
+  if(!addButton) return;
+  [streetInput, cityInput, postcodeInput].forEach(field => {
+  field?.addEventListener("input", () => {
+    if(field.value.trim()){
+      field.classList.remove("pz-required-error");
+    }
+  });
+});
+
+
+
+
+
+
+
+
+typeSelect?.addEventListener("change", () => {
+  if(typeSelect.value){
+    typeSelect.classList.remove("pz-required-error");
+  }
+});
+
+
+
+
+
+
+
+
+gdprInput?.addEventListener("change", () => {
+  if(gdprInput.checked){
+    consent?.classList.remove("pz-required-error");
+  }
+});
+
+
+
+
+
+
+
+
+  addButton.addEventListener("click", () => {
+
+
+
+
+
+
+
+
+    const requiredFields = [
+      streetInput,
+      cityInput,
+      postcodeInput,
+      typeSelect
+    ];
+
+
+
+
+
+
+
+
+    let hasError = false;
+
+
+
+
+
+
+
+
+    requiredFields.forEach(field => {
+      if(!field || !field.value.trim()){
+        field?.classList.add("pz-required-error");
+        hasError = true;
+      } else {
+        field.classList.remove("pz-required-error");
+      }
+    });
+
+
+
+
+
+
+
+
+    if(!gdprInput?.checked){
+      consent?.classList.add("pz-required-error");
+      hasError = true;
+    } else {
+      consent?.classList.remove("pz-required-error");
+    }
+
+
+
+
+
+
+
+
+    if(hasError){
+  return;
+}
+const deliveryItem = {
+  id: "delivery",
+  type: "delivery",
+  street: streetInput.value.trim(),
+  city: cityInput.value.trim(),
+  postcode: postcodeInput.value.trim(),
+  deliveryType: typeSelect.value,
+  km: parseFloat($("pz-delivery-km")?.value) || 0,
+  rate: parseFloat($("pz-delivery-rate")?.value) || 0,
+  priceWithoutVat: parseFloat(
+    String($("pz-delivery-price")?.textContent || "0")
+      .replace(/\s/g, "")
+      .replace(/[^\d.,]/g, "")
+      .replace(",", ".")
+  ) || 0
+};
+
+
+
+
+
+
+
+
+console.log("Připravená doprava:", deliveryItem);
+    state.cart = state.cart.filter(item => item.type !== "delivery");
+state.cart.unshift(deliveryItem);
+
+
+
+
+
+
+
+
+renderCart();
+bumpCart();
+    const deliveryHead = document.querySelector(".pz-delivery-head");
+const deliveryBody = $("pz-delivery-body");
+const deliveryCollapsed = $("pz-delivery-collapsed");
+const collapsedAddress = $("pz-delivery-collapsed-address");
+
+
+
+
+
+
+
+
+if(collapsedAddress){
+  collapsedAddress.textContent =
+    `${deliveryItem.street}, ${deliveryItem.postcode} ${deliveryItem.city}`;
+}
+
+
+
+
+
+
+
+
+if(deliveryHead) deliveryHead.style.display = "none";
+if(deliveryBody) deliveryBody.style.display = "none";
+if(deliveryCollapsed) deliveryCollapsed.style.display = "flex";
+    showToast("Doprava byla přidána do kalkulace.");
+  });
+}
+    
+    function renderAll(){
+      renderMaterials();
+      renderProducts();
+      renderParams();
+      renderServices();
+      updatePreview();
+      renderCart();
+    }
+    $("pz-add-btn").onclick = addOrUpdate;
+    $("pz-cancel-edit").onclick = ()=>{
+      if(state.editingBackup){
+        const b = state.editingBackup;
+        state.cart.splice(Math.min(b.index, state.cart.length), 0, b.item);
+      }
+      state.editingId=null;
+      state.editingBackup=null;
+      $("pz-add-btn").textContent="Přidat do kalkulace";
+      $("pz-cancel-edit").style.display="none";
+      $("pz-edit-info").textContent="";
+      resetForm();
+    };
+    $("pz-open-cart").onclick = openCart;
+    $("pz-close-cart").onclick = closeCart;
+    $("pz-print").onclick = printCalc;
+    $("pz-inquiry").onclick = ()=>{
+      saveCalculationState();
+      window.location.href = "https://www.pilazeleznice.cz/poptat/";
+    };
+    $("pz-cart-modal").addEventListener("click", e=>{ if(e.target.id==="pz-cart-modal") closeCart(); });
+
+    const restoredCalculation = loadCalculationState();
+    if(!restoredCalculation){
+      loadDraft();
+    }
+
+    state.values = Object.keys(state.values).length ? state.values : defaultValues(productDef());
+    setupDeliveryChoice();
+    setupDeliveryType();
+    setupDeliveryValidation();
+    setupDeliveryEdit();
+    setupDeliveryAutocomplete();
+    restoreStoredDeliveryUi();
+    // ===== MAPA DOPRAVY =====
+const routeMapElement = document.getElementById("pz-route-map");
+
+
+
+
+
+
+
+
+if (routeMapElement && typeof L !== "undefined") {
+  routeMap = L.map("pz-route-map").setView(
+    [50.4625223, 15.3751174],
+    15
+  );
+    L.tileLayer(
+    "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    {
+      maxZoom: 19,
+      attribution: "Tiles © Esri"
+    }
+  ).addTo(routeMap);
+  const startPoint = [50.4625223, 15.3751174];
+
+
+
+
+
+
+
+
+const redMarkerIcon = L.icon({
+  iconUrl: "https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png",
+  shadowUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png",
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  tooltipAnchor: [16, -20],
+  shadowSize: [41, 41]
+});
+
+
+
+
+
+
+
+
+const startMarker = L.marker(startPoint, {
+  icon: redMarkerIcon
+}).addTo(routeMap);
+
+
+
+
+
+
+
+
+startMarker.bindTooltip("Pila Železnice", {
+  permanent: true,
+  direction: "right",
+  offset: [2, 0],
+  className: "pz-map-label"
+});
+
+
+
+
+
+
+
+
+startMarker.bindPopup(
+  "<strong>Pila Železnice</strong><br>Nádražní 349"
+);
+  let routeMapResizeFrame = 0;
+  const routeMapResizeObserver = new ResizeObserver(() => {
+    cancelAnimationFrame(routeMapResizeFrame);
+    routeMapResizeFrame = requestAnimationFrame(() => routeMap.invalidateSize());
+  });
+
+
+
+
+
+
+
+
+routeMapResizeObserver.observe(routeMapElement);
+
+
+
+
+
+
+
+
+requestAnimationFrame(() => {
+  routeMap.invalidateSize();
+});
+}
+init3DVisualizer();
+renderAll();
+  })();
+  </script>
+</div>
