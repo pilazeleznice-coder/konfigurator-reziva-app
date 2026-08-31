@@ -1,0 +1,13 @@
+{
+  "name": "Konfigurátor řeziva – Pila Železnice",
+  "short_name": "Řezivo",
+  "description": "Konfigurátor a kalkulátor řeziva Pila Železnice",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#2f5f3a",
+  "lang": "cs",
+  "orientation": "any",
+  "icons": []
+}
