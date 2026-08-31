@@ -9,5 +9,12 @@
   "theme_color": "#2f5f3a",
   "lang": "cs",
   "orientation": "any",
-  "icons": []
+ "icons": [
+  {
+    "src": "./icons/icon-512.png",
+    "sizes": "512x512",
+    "type": "image/png",
+    "purpose": "any"
+  }
+]
 }
