@@ -6892,12 +6892,30 @@ if(deliveryCollapsed) deliveryCollapsed.style.display = "flex";
         else wordOrderFont=20;
         pzWordWrite(pzWordAnchor(a,"right",2880000,2920000),rows.length?rows:[{text:" "}],wordOrderFont);
         pzWordWrite(pzWordAnchor(a,"32011",9270000,9300000),[{text:new Date().toLocaleDateString("cs-CZ")}],32);pzWordWrite(pzWordAnchor(a,"2387077",9340000,9380000),[{text:`${fmtNum(tot.without,0)},-`,bold:true}],32);pzWordWrite(pzWordAnchor(a,"4616263",9350000,9395000),[{text:`${fmtNum(tot.with,0)},-`,bold:true}],32);
-        zip.file("word/document.xml",new XMLSerializer().serializeToString(xml));const blob=await zip.generateAsync({type:"blob",mimeType:"application/vnd.openxmlformats-officedocument.wordprocessingml.document"}),url=URL.createObjectURL(blob);
+        zip.file("word/document.xml",new XMLSerializer().serializeToString(xml));
+        const blob=await zip.generateAsync({type:"blob",mimeType:"application/vnd.openxmlformats-officedocument.wordprocessingml.document"});
         const safe=(c.name||"zakaznik").replace(/[^a-zA-Z0-9á-žÁ-Ž_-]+/g,"_"),fileName=`Pila Železnice_zakázkový list_KG-${pc}_${safe}.docx`;
+        const file=new File([blob],fileName,{type:"application/vnd.openxmlformats-officedocument.wordprocessingml.document"});
+        const url=URL.createObjectURL(blob);
         let link=$("pz-word-download");
         if(link?.dataset.url){try{URL.revokeObjectURL(link.dataset.url);}catch(_){}}
         if(!link){link=document.createElement("a");link.id="pz-word-download";link.className="pz-word-download-link";btn?.insertAdjacentElement("afterend",link);}
-        link.dataset.url=url;link.href=url;link.download=fileName;link.target="_blank";link.rel="noopener";link.textContent="Stáhnout dokument Word";
+        link.dataset.url=url;link.href=url;link.download=fileName;link.textContent="Stáhnout dokument Word";
+        link.onclick=async function(ev){
+          ev.preventDefault();
+          try{
+            if(navigator.canShare && navigator.canShare({files:[file]}) && navigator.share){
+              await navigator.share({files:[file],title:fileName});
+              return;
+            }
+          }catch(err){
+            if(err && err.name==="AbortError") return;
+            console.warn("Sdílení Word souboru selhalo, používám klasické stažení:",err);
+          }
+          const a=document.createElement("a");
+          a.href=url;a.download=fileName;a.style.display="none";
+          document.body.appendChild(a);a.click();a.remove();
+        };
         showToast("Dokument Word je připravený ke stažení.");
       }catch(err){console.error("Word:",err);alert("Word dokument se nepodařilo vytvořit. Důvod: "+(err?.message||String(err)));}finally{if(btn){btn.disabled=false;btn.textContent=old;}}
     }
