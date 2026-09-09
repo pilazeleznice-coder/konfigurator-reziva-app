@@ -6893,29 +6893,66 @@ if(deliveryCollapsed) deliveryCollapsed.style.display = "flex";
         pzWordWrite(pzWordAnchor(a,"right",2880000,2920000),rows.length?rows:[{text:" "}],wordOrderFont);
         pzWordWrite(pzWordAnchor(a,"32011",9270000,9300000),[{text:new Date().toLocaleDateString("cs-CZ")}],32);pzWordWrite(pzWordAnchor(a,"2387077",9340000,9380000),[{text:`${fmtNum(tot.without,0)},-`,bold:true}],32);pzWordWrite(pzWordAnchor(a,"4616263",9350000,9395000),[{text:`${fmtNum(tot.with,0)},-`,bold:true}],32);
         zip.file("word/document.xml",new XMLSerializer().serializeToString(xml));
-        const blob=await zip.generateAsync({type:"blob",mimeType:"application/vnd.openxmlformats-officedocument.wordprocessingml.document"});
+        const mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+        /*
+          Mobil/PWA: blob: odkazy mohou v režimu aplikace na Androidu selhat.
+          Proto připravujeme současně Uint8Array + Blob + samostatný data: odkaz.
+          Viditelné tlačítko pak používá skutečný uživatelský klik, ne syntetické a.click().
+        */
+        const bytes=await zip.generateAsync({type:"uint8array",compression:"DEFLATE"});
+        const blob=new Blob([bytes],{type:mime});
         const safe=(c.name||"zakaznik").replace(/[^a-zA-Z0-9á-žÁ-Ž_-]+/g,"_"),fileName=`Pila Železnice_zakázkový list_KG-${pc}_${safe}.docx`;
-        const file=new File([blob],fileName,{type:"application/vnd.openxmlformats-officedocument.wordprocessingml.document"});
-        const url=URL.createObjectURL(blob);
+        const blobUrl=URL.createObjectURL(blob);
+        const base64=(()=>{
+          let binary="";
+          const chunk=0x8000;
+          for(let i=0;i<bytes.length;i+=chunk){binary+=String.fromCharCode(...bytes.subarray(i,Math.min(i+chunk,bytes.length)));}
+          return btoa(binary);
+        })();
+        const dataUrl=`data:${mime};base64,${base64}`;
+
         let link=$("pz-word-download");
         if(link?.dataset.url){try{URL.revokeObjectURL(link.dataset.url);}catch(_){}}
         if(!link){link=document.createElement("a");link.id="pz-word-download";link.className="pz-word-download-link";btn?.insertAdjacentElement("afterend",link);}
-        link.dataset.url=url;link.href=url;link.download=fileName;link.textContent="Stáhnout dokument Word";
-        link.onclick=async function(ev){
-          ev.preventDefault();
-          try{
-            if(navigator.canShare && navigator.canShare({files:[file]}) && navigator.share){
-              await navigator.share({files:[file],title:fileName});
+        link.dataset.url=blobUrl;
+        link.href=dataUrl;
+        link.download=fileName;
+        link.removeAttribute("target");
+        link.removeAttribute("rel");
+        link.textContent="Stáhnout dokument Word";
+
+        /*
+          1) Kde je dostupné nativní „Uložit jako“, použijeme ho – je nejspolehlivější.
+          2) Jinak NEBLOKUJEME výchozí klik na <a>. Prohlížeč tak dostane přímý
+             uživatelský klik na data: DOCX, což funguje lépe v Android PWA než
+             předchozí preventDefault + programatické kliknutí na blob: URL.
+        */
+        const handleWordDownload=async function(ev){
+          if(typeof window.showSaveFilePicker==="function"){
+            ev.preventDefault();
+            try{
+              const handle=await window.showSaveFilePicker({suggestedName:fileName});
+              const writable=await handle.createWritable();
+              await writable.write(blob);
+              await writable.close();
+              showToast("Dokument Word byl uložen.");
+              return;
+            }catch(err){
+              if(err?.name==="AbortError")return;
+              console.warn("Nativní uložení není dostupné, používám přímé stažení:",err);
+              /* Pokud picker selže, připravíme čistý nativní odkaz. Další fyzické klepnutí
+                 už proběhne bez JavaScriptového přesměrování a bez blob: URL. */
+              link.onclick=null;
+              link.href=dataUrl;
+              link.download=fileName;
+              showToast("Uložení přes systém není dostupné. Klepněte na Stáhnout dokument Word ještě jednou.");
               return;
             }
-          }catch(err){
-            if(err && err.name==="AbortError") return;
-            console.warn("Sdílení Word souboru selhalo, používám klasické stažení:",err);
           }
-          const a=document.createElement("a");
-          a.href=url;a.download=fileName;a.style.display="none";
-          document.body.appendChild(a);a.click();a.remove();
+          /* Bez pickeru necháme proběhnout nativní chování odkazu. */
+          showToast("Spouštím stažení dokumentu Word…");
         };
+        link.onclick=handleWordDownload;
         showToast("Dokument Word je připravený ke stažení.");
       }catch(err){console.error("Word:",err);alert("Word dokument se nepodařilo vytvořit. Důvod: "+(err?.message||String(err)));}finally{if(btn){btn.disabled=false;btn.textContent=old;}}
     }
