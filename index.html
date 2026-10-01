@@ -7589,10 +7589,16 @@ renderAll();
         showRecovery();
         return;
       }
-      await new Promise(resolve=>setTimeout(resolve,0));
+
+      // Supabase může recovery token z URL zpracovat a URL vyčistit ještě dřív,
+      // než se dostaneme sem. Proto dáme PASSWORD_RECOVERY události přednost
+      // před běžným automatickým otevřením již přihlášené aplikace.
+      await new Promise(resolve=>setTimeout(resolve,900));
       if(recoveryMode) return;
+
       const {data,error}=await pzSupabase.auth.getSession();
       if(error) throw error;
+      if(recoveryMode) return;
       if(data?.session?.user) await loadCloudAndOpen(); else showLogin('');
     }catch(error){
       console.error('PZ OBNOVENÍ PŘIHLÁŠENÍ CHYBA:',error);
