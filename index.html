@@ -43,7 +43,13 @@
 <script>
 const SUPABASE_URL = "https://nnuptyxxyceqwtxdjpbi.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable__CUybnOrIgbDA4gUiXfzHg_7YdAXEuZ";
-const pzSupabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+const pzSupabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: true
+  }
+});
 async function pzLogin(email, password) {
   const { data, error } = await pzSupabase.auth.signInWithPassword({
     email: email,
@@ -230,7 +236,51 @@ async function pzSyncRecords() {
 }
 </script>
 
-<div id="pz-app">
+<style id="pz-auth-style">
+  html.pz-auth-pending body{overflow:hidden}
+  #pz-app.pz-auth-hidden{visibility:hidden}
+  #pz-auth-gate{position:fixed;inset:0;z-index:2147483646;display:flex;align-items:center;justify-content:center;padding:24px;background:#f3f6f3;font-family:Arial,Helvetica,sans-serif;color:#1e2a22}
+  #pz-auth-gate[hidden]{display:none}
+  .pz-auth-card{width:min(440px,100%);background:#fff;border:1px solid #d9e5dc;border-radius:26px;box-shadow:0 24px 60px rgba(20,50,30,.16);overflow:hidden}
+  .pz-auth-head{padding:28px 30px;background:linear-gradient(135deg,#2f5f3a,#1f4328);color:#fff;text-align:center}
+  .pz-auth-head strong{display:block;font-size:25px;line-height:1.15}
+  .pz-auth-head span{display:block;margin-top:7px;font-size:14px;opacity:.9}
+  .pz-auth-body{padding:28px 30px 30px}
+  .pz-auth-field{display:block;margin-bottom:17px}
+  .pz-auth-field span{display:block;margin:0 0 7px;font-size:13px;font-weight:700;color:#425047}
+  .pz-auth-field input{width:100%;height:50px;border:1px solid #cfdcd2;border-radius:14px;padding:0 15px;font:inherit;font-size:16px;outline:none;background:#fff;color:#1e2a22}
+  .pz-auth-field input:focus{border-color:#2f5f3a;box-shadow:0 0 0 3px rgba(47,95,58,.12)}
+  #pz-auth-submit,#pz-reset-submit{width:100%;height:52px;border:0;border-radius:14px;background:#2f5f3a;color:#fff;font-weight:800;font-size:15px;cursor:pointer}
+  #pz-auth-submit:disabled,#pz-reset-submit:disabled{opacity:.65;cursor:wait}
+  #pz-auth-message,#pz-reset-message{min-height:20px;margin:14px 2px 0;font-size:13px;line-height:1.4;text-align:center;color:#b42318}
+  .pz-auth-loading{display:flex;align-items:center;justify-content:center;gap:10px;color:#66736a;font-size:14px}
+  .pz-auth-spinner{width:18px;height:18px;border:2px solid #d9e5dc;border-top-color:#2f5f3a;border-radius:50%;animation:pzAuthSpin .7s linear infinite}
+  @keyframes pzAuthSpin{to{transform:rotate(360deg)}}
+  @media(max-width:560px){#pz-auth-gate{padding:16px}.pz-auth-card{border-radius:22px}.pz-auth-head{padding:25px 22px}.pz-auth-body{padding:24px 22px 26px}}
+</style>
+<script>document.documentElement.classList.add('pz-auth-pending');</script>
+<div id="pz-auth-gate" aria-live="polite">
+  <div class="pz-auth-card">
+    <div class="pz-auth-head"><strong>Konfigurátor řeziva</strong><span>Pila Železnice</span></div>
+    <div class="pz-auth-body">
+      <div id="pz-auth-check" class="pz-auth-loading"><span class="pz-auth-spinner"></span><span>Ověřuji přihlášení…</span></div>
+      <form id="pz-auth-form" hidden autocomplete="on">
+        <label class="pz-auth-field"><span>E-mail</span><input id="pz-auth-email" type="email" autocomplete="username" required></label>
+        <label class="pz-auth-field"><span>Heslo</span><input id="pz-auth-password" type="password" autocomplete="current-password" required></label>
+        <button id="pz-auth-submit" type="submit">PŘIHLÁSIT SE</button>
+        <div id="pz-auth-message"></div>
+      </form>
+      <form id="pz-reset-form" hidden autocomplete="on">
+        <div style="margin:0 0 18px;text-align:center;font-size:14px;line-height:1.45;color:#66736a">Nastavte nové heslo pro přístup ke konfigurátoru.</div>
+        <label class="pz-auth-field"><span>Nové heslo</span><input id="pz-reset-password" type="password" autocomplete="new-password" minlength="8" required></label>
+        <label class="pz-auth-field"><span>Nové heslo znovu</span><input id="pz-reset-password2" type="password" autocomplete="new-password" minlength="8" required></label>
+        <button id="pz-reset-submit" type="submit">ULOŽIT NOVÉ HESLO</button>
+        <div id="pz-reset-message"></div>
+      </form>
+    </div>
+  </div>
+</div>
+<div id="pz-app" class="pz-auth-hidden">
   <style>
     #pz-app{
       --pz-green:#2f5f3a;--pz-green-dark:#1f4328;--pz-green-soft:#eef6f0;--pz-bg:#f6f8f5;
@@ -7480,3 +7530,109 @@ renderAll();
   })();
   </script>
 </div>
+<script id="pz-auth-init">
+(function(){
+  const gate=document.getElementById('pz-auth-gate');
+  const app=document.getElementById('pz-app');
+  const check=document.getElementById('pz-auth-check');
+  const form=document.getElementById('pz-auth-form');
+  const email=document.getElementById('pz-auth-email');
+  const password=document.getElementById('pz-auth-password');
+  const submit=document.getElementById('pz-auth-submit');
+  const message=document.getElementById('pz-auth-message');
+  const resetForm=document.getElementById('pz-reset-form');
+  const resetPassword=document.getElementById('pz-reset-password');
+  const resetPassword2=document.getElementById('pz-reset-password2');
+  const resetSubmit=document.getElementById('pz-reset-submit');
+  const resetMessage=document.getElementById('pz-reset-message');
+  let recoveryMode=false;
+
+  function showLogin(text){
+    recoveryMode=false;
+    if(check) check.hidden=true;
+    if(resetForm) resetForm.hidden=true;
+    if(form) form.hidden=false;
+    if(message) message.textContent=text||'';
+    document.documentElement.classList.add('pz-auth-pending');
+    if(gate) gate.hidden=false;
+    if(app) app.classList.add('pz-auth-hidden');
+  }
+  function showRecovery(){
+    recoveryMode=true;
+    if(check) check.hidden=true;
+    if(form) form.hidden=true;
+    if(resetForm) resetForm.hidden=false;
+    if(resetMessage) resetMessage.textContent='';
+    document.documentElement.classList.add('pz-auth-pending');
+    if(gate) gate.hidden=false;
+    if(app) app.classList.add('pz-auth-hidden');
+  }
+  function showApp(){
+    if(gate) gate.hidden=true;
+    if(app) app.classList.remove('pz-auth-hidden');
+    document.documentElement.classList.remove('pz-auth-pending');
+  }
+  async function loadCloudAndOpen(){
+    try{ await pzSyncRecords(); }catch(error){ console.error('PZ ÚVODNÍ SYNCHRONIZACE CHYBA:',error); }
+    showApp();
+  }
+
+  pzSupabase.auth.onAuthStateChange((event)=>{
+    if(event==='PASSWORD_RECOVERY') showRecovery();
+  });
+
+  async function restoreSession(){
+    try{
+      const hash=window.location.hash||'';
+      const query=window.location.search||'';
+      if(hash.includes('type=recovery')||query.includes('type=recovery')){
+        showRecovery();
+        return;
+      }
+      await new Promise(resolve=>setTimeout(resolve,0));
+      if(recoveryMode) return;
+      const {data,error}=await pzSupabase.auth.getSession();
+      if(error) throw error;
+      if(data?.session?.user) await loadCloudAndOpen(); else showLogin('');
+    }catch(error){
+      console.error('PZ OBNOVENÍ PŘIHLÁŠENÍ CHYBA:',error);
+      showLogin('Přihlášení se nepodařilo ověřit. Zkuste se přihlásit.');
+    }
+  }
+  form?.addEventListener('submit',async function(e){
+    e.preventDefault();
+    if(submit) submit.disabled=true;
+    if(message) message.textContent='';
+    try{
+      await pzLogin((email?.value||'').trim(),password?.value||'');
+      if(password) password.value='';
+      await loadCloudAndOpen();
+    }catch(error){
+      console.error('PZ LOGIN CHYBA:',error);
+      if(message) message.textContent='Přihlášení se nepodařilo. Zkontrolujte e-mail a heslo.';
+    }finally{ if(submit) submit.disabled=false; }
+  });
+  resetForm?.addEventListener('submit',async function(e){
+    e.preventDefault();
+    const a=resetPassword?.value||'';
+    const b=resetPassword2?.value||'';
+    if(resetMessage) resetMessage.textContent='';
+    if(a.length<8){ if(resetMessage) resetMessage.textContent='Heslo musí mít alespoň 8 znaků.'; return; }
+    if(a!==b){ if(resetMessage) resetMessage.textContent='Zadaná hesla se neshodují.'; return; }
+    if(resetSubmit) resetSubmit.disabled=true;
+    try{
+      const {error}=await pzSupabase.auth.updateUser({password:a});
+      if(error) throw error;
+      history.replaceState(null,'',window.location.pathname);
+      if(resetPassword) resetPassword.value='';
+      if(resetPassword2) resetPassword2.value='';
+      recoveryMode=false;
+      await loadCloudAndOpen();
+    }catch(error){
+      console.error('PZ ZMĚNA HESLA CHYBA:',error);
+      if(resetMessage) resetMessage.textContent='Nové heslo se nepodařilo uložit. Otevřete nový odkaz pro obnovení hesla.';
+    }finally{ if(resetSubmit) resetSubmit.disabled=false; }
+  });
+  restoreSession();
+})();
+</script>
