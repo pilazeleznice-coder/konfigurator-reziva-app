@@ -127,112 +127,96 @@ window.pzTestLoad = async function() {
   console.log("SUPABASE LOAD OK", data);
   return data;
 };
+const PZ_TOMBSTONE_TYPE="__deleted";
+const PZ_TOMBSTONES_KEY="pzCalculationTombstonesV1";
+const pzCloudQueues=new Map();
+let pzRealtimeChannel=null;
+let pzSyncBusy=false;
+
+function pzLocalTombstones(){
+  try{const x=JSON.parse(localStorage.getItem(PZ_TOMBSTONES_KEY)||"[]");return Array.isArray(x)?x:[]}catch(_){return []}
+}
+function pzSetLocalTombstones(rows){localStorage.setItem(PZ_TOMBSTONES_KEY,JSON.stringify(rows||[]))}
+function pzIsTombstone(r){return !!r&&r.type===PZ_TOMBSTONE_TYPE}
+function pzRecordStamp(r){return Number(r?.updatedAt||r?.deletedAt||0)}
+function pzQueueCloud(id,job){
+  const previous=pzCloudQueues.get(id)||Promise.resolve();
+  const next=previous.catch(()=>{}).then(job).finally(()=>{if(pzCloudQueues.get(id)===next)pzCloudQueues.delete(id)});
+  pzCloudQueues.set(id,next);return next;
+}
 async function pzCloudSaveRecord(record) {
-  const user = await pzGetCurrentUser();
-
-  if (!user || !record) {
-    return false;
-  }
-
-  const { error } = await pzSupabase
-    .from("configurations")
-    .upsert({
-      id: record.id,
-      user_id: user.id,
-      name: record.customer || "Bez názvu",
-      data: record
-    });
-
-  if (error) {
-    console.error("PZ CLOUD SAVE CHYBA:", error.message, "KÓD:", error.code, "DETAIL:", error.details);
-    return false;
-  }
-
-  return true;
+  const user=await pzGetCurrentUser();
+  if(!user||!record?.id)return false;
+  return pzQueueCloud(record.id,async()=>{
+    /* Než zapíšeme, ověříme cloud. Tombstone má vždy přednost; jinak vyhrává novější změna. */
+    const {data:existing,error:readError}=await pzSupabase.from("configurations").select("data").eq("id",record.id).eq("user_id",user.id).maybeSingle();
+    if(readError){console.error("PZ CLOUD CHECK CHYBA:",readError.message);return false}
+    const remote=existing?.data;
+    if(pzIsTombstone(remote)&&!pzIsTombstone(record))return false;
+    if(remote&&!pzIsTombstone(record)&&pzRecordStamp(remote)>pzRecordStamp(record))return false;
+    const {error}=await pzSupabase.from("configurations").upsert({id:record.id,user_id:user.id,name:pzIsTombstone(record)?"__deleted__":(record.customer||"Bez názvu"),data:record});
+    if(error){console.error("PZ CLOUD SAVE CHYBA:",error.message,"KÓD:",error.code,"DETAIL:",error.details);return false}
+    return true;
+  });
 }
 async function pzCloudDeleteRecord(id) {
-  const user = await pzGetCurrentUser();
-
-  if (!user || !id) {
-    return false;
-  }
-
-  const { error } = await pzSupabase
-    .from("configurations")
-    .delete()
-    .eq("id", id)
-    .eq("user_id", user.id);
-
-  if (error) {
-    console.error(
-      "PZ CLOUD DELETE CHYBA:",
-      error.message,
-      "KÓD:",
-      error.code
-    );
-    return false;
-  }
-
-  return true;
+  /* Kompatibilní obal: fyzické mazání už nepoužíváme, aby staré offline zařízení záznam nevzkřísilo. */
+  if(!id)return false;
+  const tomb={id,type:PZ_TOMBSTONE_TYPE,updatedAt:Date.now(),deletedAt:Date.now()};
+  const ts=pzLocalTombstones().filter(r=>r.id!==id);ts.unshift(tomb);pzSetLocalTombstones(ts);
+  return pzCloudSaveRecord(tomb);
 }
 async function pzCloudLoadRecords() {
-  const user = await pzGetCurrentUser();
-
-  if (!user) {
-    return null;
-  }
-
-  const { data, error } = await pzSupabase
-    .from("configurations")
-    .select("*")
-    .eq("user_id", user.id);
-
-  if (error) {
-    console.error(
-      "PZ CLOUD LOAD CHYBA:",
-      error.message,
-      "KÓD:",
-      error.code,
-      "DETAIL:",
-      error.details
-    );
-    return null;
-  }
-
-  return data.map(row => row.data);
+  const user=await pzGetCurrentUser();if(!user)return null;
+  const {data,error}=await pzSupabase.from("configurations").select("*").eq("user_id",user.id);
+  if(error){console.error("PZ CLOUD LOAD CHYBA:",error.message,"KÓD:",error.code,"DETAIL:",error.details);return null}
+  return (data||[]).map(row=>row.data).filter(Boolean);
 }
-function pzMergeRecords(localRecords, cloudRecords) {
-  const merged = new Map();
-
-  [...localRecords, ...cloudRecords].forEach(record => {
-    if (!record || !record.id) return;
-
-    const existing = merged.get(record.id);
-
-    if (
-      !existing ||
-      Number(record.updatedAt || 0) > Number(existing.updatedAt || 0)
-    ) {
-      merged.set(record.id, record);
-    }
+function pzMergeRecords(localRecords,cloudRecords,localTombstones=[]) {
+  const grouped=new Map();
+  [...(localRecords||[]),...(cloudRecords||[]),...(localTombstones||[])].forEach(record=>{
+    if(!record?.id)return;
+    const arr=grouped.get(record.id)||[];arr.push(record);grouped.set(record.id,arr);
   });
-
-  return Array.from(merged.values())
-    .sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0));
+  const visible=[],tombstones=[];
+  grouped.forEach(arr=>{
+    const tomb=arr.filter(pzIsTombstone).sort((a,b)=>pzRecordStamp(b)-pzRecordStamp(a))[0];
+    if(tomb){tombstones.push(tomb);return}
+    const winner=arr.sort((a,b)=>pzRecordStamp(b)-pzRecordStamp(a))[0];if(winner)visible.push(winner);
+  });
+  visible.sort((a,b)=>pzRecordStamp(b)-pzRecordStamp(a));
+  tombstones.sort((a,b)=>pzRecordStamp(b)-pzRecordStamp(a));
+  return {visible,tombstones};
 }
 async function pzSyncRecords() {
-  const cloud = await pzCloudLoadRecords();
-
-  if (!cloud) {
-    return false;
-  }
-
-  const local = window.pzGetLocalRecords();
-  const merged = pzMergeRecords(local, cloud);
-
-  window.pzSetLocalRecords(merged);
-
-  return true;
+  if(pzSyncBusy)return false;pzSyncBusy=true;
+  try{
+    window.pzSetSyncStatus?.("syncing");
+    const cloud=await pzCloudLoadRecords();if(!cloud){window.pzSetSyncStatus?.(navigator.onLine?"error":"offline");return false}
+    const local=window.pzGetLocalRecords?window.pzGetLocalRecords():[];
+    const merged=pzMergeRecords(local,cloud,pzLocalTombstones());
+    window.pzSetLocalRecords?.(merged.visible);pzSetLocalTombstones(merged.tombstones);
+    /* Dorovnáme cloud pouze vítěznými verzemi. */
+    const cloudById=new Map(cloud.map(r=>[r?.id,r]));
+    const winners=[...merged.visible,...merged.tombstones];
+    await Promise.all(winners.map(r=>{const c=cloudById.get(r.id);return (!c||pzIsTombstone(r)!==pzIsTombstone(c)||pzRecordStamp(r)>pzRecordStamp(c))?pzCloudSaveRecord(r):Promise.resolve(true)}));
+    window.pzRenderLibrary?.();window.pzSetSyncStatus?.("ok");
+    localStorage.setItem("pzLastSyncAt",String(Date.now()));
+    return true;
+  }catch(error){console.error("PZ SYNCHRONIZACE CHYBA:",error);window.pzSetSyncStatus?.(navigator.onLine?"error":"offline");return false}
+  finally{pzSyncBusy=false}
+}
+function pzStartRealtimeSync(){
+  if(pzRealtimeChannel||!pzSupabase)return;
+  try{
+    pzRealtimeChannel=pzSupabase.channel("pz-configurations-live").on("postgres_changes",{event:"*",schema:"public",table:"configurations"},()=>{pzSyncRecords()}).subscribe();
+  }catch(error){console.warn("PZ REALTIME NENÍ DOSTUPNÝ:",error)}
+  window.addEventListener("online",()=>pzSyncRecords());
+  window.addEventListener("offline",()=>window.pzSetSyncStatus?.("offline"));
+  document.addEventListener("visibilitychange",()=>{if(!document.hidden&&navigator.onLine)pzSyncRecords()});
+  window.addEventListener("focus",()=>{if(navigator.onLine)pzSyncRecords()});
+  /* Pojistka pro projekty, kde Supabase Realtime není na tabulce povolený. */
+  setInterval(()=>{if(navigator.onLine&&!document.hidden)pzSyncRecords()},15000);
 }
 </script>
 
@@ -856,7 +840,8 @@ async function pzSyncRecords() {
     .pz-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
     .pz-field{display:flex;flex-direction:column;gap:7px}
     .pz-field label{font-weight:700;font-size:14px}
-    .pz-field input,.pz-field select{width:100%;border:1px solid var(--pz-border);border-radius:13px;padding:12px 13px;font-size:15px;background:#fff}
+    .pz-field input,.pz-field select,.pz-field textarea{width:100%;border:1px solid var(--pz-border);border-radius:13px;padding:12px 13px;font-size:15px;background:#fff;box-sizing:border-box}
+    .pz-field textarea{min-height:88px;resize:vertical;font-family:inherit;line-height:1.4}
     .pz-field input[type=range]{padding:0;accent-color:var(--pz-green)}
     .pz-inline-control{display:grid;grid-template-columns:1fr 92px;gap:10px;align-items:center}
     .pz-fixed{padding:12px 13px;background:var(--pz-green-soft);border:1px solid var(--pz-border);border-radius:13px;font-weight:700}
@@ -1012,8 +997,7 @@ async function pzSyncRecords() {
       left:50%;
       top:50%;
       transform:translate(-50%,-50%);
-      width:min(560px,calc(100vw - 40px));
-      min-height:118px;
+      width:min(560px,calc(100vw - 40px));      min-height:118px;
       background:#2f753b;
       border:2px solid rgba(255,255,255,.9);
       border-radius:22px;
@@ -2012,8 +1996,7 @@ visibility: hidden;
 
     /* =====================================================
        DOLADĚNÍ ROZLOŽENÍ – 2 VOLBY VEDLE SEBE + GDPR
-       Pouze CSS, bez zásahu do funkcí kalkulátoru.
-       ===================================================== */
+       Pouze CSS, bez zásahu do funkcí kalkulátoru.       ===================================================== */
 
     /* V prostoru Webnode zobrazujeme druh dřeva i sortiment
        přehledně po dvou kartách vedle sebe. */
@@ -2634,6 +2617,7 @@ visibility: hidden;
     .pz-prefix-field:focus-within{border-color:#6d9b77;box-shadow:0 0 0 2px rgba(47,107,62,.08)}
     .pz-prefix-field:focus-within input{outline:none!important}
     .pz-prefix-field .pz-prefix-input:focus{background:#f2f8f3!important}
+    .pz-adjust-toggle{display:inline-flex;align-items:center;justify-content:center;width:23px;height:23px;border:1px solid #b7c7bc;border-radius:50%;background:transparent;color:#104c29;cursor:pointer;font-size:15px;line-height:1;vertical-align:middle;margin-left:4px;padding:0} .pz-adjust-toggle:hover{background:#eaf2ec} .pz-surcharge-value{color:#1766bc!important} .pz-manager-field.pz-surcharge-field{background:transparent!important;border:0!important} .pz-surcharge-field label,.pz-surcharge-field label span{color:#1766bc!important} .pz-surcharge-field input{background:#edf5ff!important;border-color:#74a8e4!important} .pz-surcharge-field .pz-adjust-toggle{color:#1766bc;border-color:#74a8e4;background:#e1efff} .pz-kpi.pz-surcharge-row strong{color:#1766bc!important} .pz-kpi.pz-surcharge-row > span{color:#1766bc!important}
     .pz-global-discount{margin-top:18px;padding:0;border:0;background:transparent;border-radius:0}
     .pz-global-discount-row{display:flex;gap:10px;align-items:end;flex-wrap:wrap}
     .pz-global-discount-row .pz-manager-field{flex:0 1 420px;min-width:220px;max-width:420px;margin:0}
@@ -2759,7 +2743,8 @@ visibility: hidden;
     .pz-menu-btn{width:52px;min-width:52px;border:1px solid rgba(255,255,255,.32);background:rgba(255,255,255,.12);color:#fff;border-radius:16px;cursor:pointer;display:grid;place-items:center;transition:.18s}
     .pz-menu-btn:hover{background:rgba(255,255,255,.2);transform:translateY(-1px)}
     .pz-menu-btn svg{width:25px;height:25px;stroke:currentColor;fill:none;stroke-width:2.2;stroke-linecap:round}
-    .pz-nav-overlay{position:fixed;inset:0;z-index:1000010;background:rgba(15,30,20,.46);display:none;justify-content:flex-end;backdrop-filter:blur(2px)}
+    .pz-sync-wrap{display:flex;align-items:center;gap:8px}.pz-sync-btn{position:relative}.pz-sync-btn #pz-sync-dot{position:absolute;right:7px;bottom:7px;width:8px;height:8px;border-radius:50%;background:#b9d9c1;border:1px solid rgba(255,255,255,.9)}.pz-sync-btn.is-syncing svg{animation:pzSyncSpin .8s linear infinite}.pz-sync-btn.is-error #pz-sync-dot{background:#f2b84b}.pz-sync-btn.is-offline #pz-sync-dot{background:#aeb6b0}.pz-sync-status-text{display:none;max-width:170px;padding:7px 10px;border-radius:10px;background:rgba(255,255,255,.14);color:#fff;font-size:12px;font-weight:800;line-height:1.15;white-space:nowrap}.pz-sync-status-text.show{display:block}.pz-sync-status-text.is-error{background:#8d3a2f}.pz-sync-status-text.is-offline{background:#5d675f}@keyframes pzSyncSpin{to{transform:rotate(360deg)}}
+        .pz-nav-overlay{position:fixed;inset:0;z-index:1000010;background:rgba(15,30,20,.46);display:none;justify-content:flex-end;backdrop-filter:blur(2px)}
     .pz-nav-overlay.open{display:flex}
     .pz-nav-panel{width:min(390px,92vw);height:100%;background:#f7faf8;box-shadow:-20px 0 55px rgba(0,0,0,.22);padding:22px;overflow:auto;animation:pzSlideIn .2s ease-out}
     @keyframes pzSlideIn{from{transform:translateX(24px);opacity:.5}to{transform:none;opacity:1}}
@@ -2787,6 +2772,7 @@ visibility: hidden;
     .pz-record-main strong{display:block;color:var(--pz-green-dark);font-size:16px}.pz-record-main span,.pz-record-cell span{display:block;color:var(--pz-muted);font-size:12px;margin-top:4px}.pz-record-cell strong{font-size:14px}.pz-record-price{text-align:right;white-space:nowrap}.pz-record-price strong{font-size:16px;color:var(--pz-green-dark)}
     .pz-record-actions{display:flex;gap:7px}.pz-mini-btn{border:1px solid var(--pz-border);background:#f7faf8;color:var(--pz-green-dark);border-radius:11px;padding:9px 11px;font-weight:800;cursor:pointer}.pz-mini-btn.danger{color:#a62929;background:#fff4f4;border-color:#efcaca}
     .pz-empty-state{padding:48px 20px;text-align:center;background:#fff;border:1px dashed #bfd0c3;border-radius:20px;color:var(--pz-muted)}.pz-empty-state strong{display:block;color:var(--pz-green-dark);font-size:18px;margin-bottom:6px}
+    .pz-archive-item-notes{display:grid;gap:7px;margin-top:4px}.pz-archive-item-notes>div{display:flex;flex-direction:column;gap:2px;padding:8px 10px;border-radius:10px;background:#f7faf8;border:1px solid var(--pz-border);font-size:12px}.pz-archive-item-notes>div strong{color:var(--pz-green-dark)}.pz-archive-item-notes>div span{color:var(--pz-text)}
     .pz-archive-meta{margin-top:16px;padding:15px;border:1px solid var(--pz-border);border-radius:16px;background:#f7faf8}.pz-archive-meta-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.pz-archive-meta label{display:block;font-size:12px;font-weight:800;color:var(--pz-green-dark);margin-bottom:6px}.pz-archive-meta input,.pz-archive-meta select{width:100%;border:1px solid var(--pz-border);border-radius:11px;padding:10px;background:#fff;font:inherit}.pz-archive-btn{width:100%;margin-top:10px}
     .pz-trash-toolbar{display:flex;justify-content:flex-end;margin:16px 0}
     @media(max-width:700px){.pz-top-actions{width:100%}.pz-top-actions .pz-cart-btn{flex:1}.pz-menu-btn{height:auto}.pz-nav-panel{width:100vw;max-width:none}.pz-library-shell{padding:12px}.pz-library-head{padding-top:4px}.pz-library-tools{grid-template-columns:1fr 1fr}.pz-library-tools .pz-search-wide{grid-column:1/-1}.pz-record{grid-template-columns:1fr auto;gap:9px}.pz-record-cell{grid-column:1/-1}.pz-record-price{grid-column:1}.pz-record-actions{grid-column:2;grid-row:1 / span 2;flex-direction:column}.pz-archive-meta-grid{grid-template-columns:1fr}}
@@ -2864,7 +2850,7 @@ visibility: hidden;
             <span class="pz-cart-btn-total" id="pz-cart-total-top">0 Kč s DPH</span>
           </span>
         </button>
-        <button class="pz-menu-btn" type="button" id="pz-menu-open" aria-label="Otevřít menu"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+        <div class="pz-sync-wrap"><button class="pz-menu-btn pz-sync-btn" type="button" id="pz-sync-now" aria-label="Synchronizovat" title="Synchronizováno"><svg viewBox="0 0 24 24"><path d="M20 6v5h-5M4 18v-5h5M6.1 9A7 7 0 0 1 18.5 6.5L20 8M4 16l1.5 1.5A7 7 0 0 0 17.9 15"/></svg><span id="pz-sync-dot" aria-hidden="true"></span></button><span class="pz-sync-status-text" id="pz-sync-status-text" role="status" aria-live="polite"></span></div><button class="pz-menu-btn" type="button" id="pz-menu-open" aria-label="Otevřít menu"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
       </div>
         </header>
 
@@ -2891,7 +2877,7 @@ visibility: hidden;
       <div class="pz-contact-body">
         <div class="pz-contact-grid">
           <div class="pz-field"><label>Jméno a příjmení</label><input class="pz-contact-input" id="pz-contact-name" type="text"></div>
-          <div class="pz-field"><label>Telefonní číslo</label><div class="pz-prefix-field"><input class="pz-contact-input pz-prefix-input" id="pz-contact-phone-prefix" type="tel" inputmode="tel" value="+420" aria-label="Telefonní předvolba"><input class="pz-contact-input pz-prefix-value" id="pz-contact-phone" type="tel" inputmode="numeric" aria-label="Telefonní číslo"></div></div>
+          <div class="pz-field pz-s9-phonefield"><label>Telefonní číslo</label><div class="pz-prefix-field"><input class="pz-contact-input pz-prefix-input" id="pz-contact-phone-prefix" type="tel" inputmode="tel" value="+420" aria-label="Telefonní předvolba"><input class="pz-contact-input pz-prefix-value" id="pz-contact-phone" type="tel" inputmode="numeric" aria-label="Telefonní číslo"></div></div>
           <div class="pz-field"><label>Adresa</label><input class="pz-contact-input" id="pz-contact-address" type="text"></div>
           <div class="pz-field"><label>Název firmy</label><input class="pz-contact-input" id="pz-contact-company" type="text"></div>
           <div class="pz-field"><label>IČO</label><input class="pz-contact-input" id="pz-contact-ico" type="text" inputmode="numeric" maxlength="8"></div>
@@ -3009,7 +2995,6 @@ visibility: hidden;
 
 
 
-
             <div class="pz-field">
               <label for="pz-delivery-city">Město</label>
              <div class="pz-input-check-wrap">
@@ -3071,7 +3056,7 @@ visibility: hidden;
 
 
             <div class="pz-manager-field"><label for="pz-delivery-rate">Cena dopravy bez DPH</label><div class="pz-unit-wrap"><input id="pz-delivery-rate" type="number" inputmode="decimal" min="0" step="1" value="0"><span class="pz-unit-suffix">Kč</span></div></div>
-            <div class="pz-manager-field"><label for="pz-delivery-discount">Sleva na dopravu</label><div class="pz-unit-wrap pz-percent-wrap"><input id="pz-delivery-discount" type="number" inputmode="decimal" min="0" max="100" step="1" value=""><span class="pz-unit-suffix">%</span></div></div>
+            <div class="pz-manager-field" id="pz-delivery-adjust-field"><label for="pz-delivery-discount"><span id="pz-delivery-adjust-label">Sleva na dopravu</span> <button type="button" class="pz-adjust-toggle" id="pz-delivery-adjust-toggle" title="Přepnout slevu / přirážku">↔</button></label><div class="pz-unit-wrap pz-percent-wrap"><input id="pz-delivery-discount" type="number" inputmode="decimal" min="0" max="100" step="1" value=""><span class="pz-unit-suffix">%</span></div></div>
           </div>
 
 
@@ -3085,7 +3070,7 @@ visibility: hidden;
             <div class="pz-delivery-live-row"><span>Počet km</span><strong id="pz-delivery-live-km">0 km</strong></div>
             <div class="pz-delivery-live-row"><span>Cenová zóna</span><strong id="pz-delivery-live-rate">Vyberte adresu</strong></div>
             <div class="pz-delivery-live-row"><span>Mezisoučet</span><strong id="pz-delivery-live-subtotal">0 Kč</strong></div>
-            <div class="pz-delivery-live-row"><span>Sleva</span><strong class="pz-discount-value" id="pz-delivery-live-discount">0 Kč</strong></div>
+            <div class="pz-delivery-live-row" id="pz-delivery-live-adjust-row"><span id="pz-delivery-live-adjust-label">Sleva</span><strong class="pz-discount-value" id="pz-delivery-live-discount">0 Kč</strong></div>
             <div class="pz-delivery-live-row"><span>DPH 21 %</span><strong id="pz-delivery-live-vat">0 Kč</strong></div>
           </div>
 
@@ -3146,6 +3131,10 @@ visibility: hidden;
           <h2>Doplňkové služby</h2>
           <div class="pz-services" id="pz-services"></div>
         </div>
+        <div class="pz-field pz-item-note-field">
+          <label for="pz-item-note">Poznámka k položce</label>
+          <textarea id="pz-item-note" maxlength="1000" placeholder="Volitelná poznámka ke konkrétní položce"></textarea>
+        </div>
         <div class="pz-actions">
           <button class="pz-btn" type="button" id="pz-add-btn">Přidat do kalkulace</button>
           <button class="pz-btn secondary" type="button" id="pz-cancel-edit" style="display:none">Zrušit úpravu</button>
@@ -3186,7 +3175,7 @@ visibility: hidden;
       <div class="pz-summary-item"><span>Cena dopravy bez DPH</span><strong id="pz-sum-transport">0 Kč</strong></div>
       <div class="pz-summary-item"><span>Celkový objem</span><strong id="pz-sum-volume">0 m³</strong></div>
       <div class="pz-summary-item"><span>Celková cena bez DPH</span><strong id="pz-sum-without">0 Kč</strong></div>
-      <div class="pz-summary-item"><span>Celková sleva</span><strong class="pz-discount-value" id="pz-sum-discount">0 Kč</strong></div>
+      <div class="pz-summary-item"><span>Celková sleva</span><strong class="pz-discount-value" id="pz-sum-discount">0 Kč</strong></div><div class="pz-summary-item"><span class="pz-surcharge-value">Celková přirážka</span><strong class="pz-surcharge-value" id="pz-sum-surcharge">0 Kč</strong></div>
       <div class="pz-summary-item"><span>Hodnota DPH 21 %</span><strong id="pz-sum-vat">0 Kč</strong></div>
       <div class="pz-summary-item"><span>Celková cena s DPH</span><strong id="pz-sum-with">0 Kč</strong></div>
     </section>
@@ -3243,7 +3232,7 @@ visibility: hidden;
             <div class="pz-detail"><span>Cena dopravy bez DPH</span><strong id="pz-modal-transport">0 Kč</strong></div>
             <div class="pz-detail"><span>Celkový objem</span><strong id="pz-modal-volume">0 m³</strong></div>
             <div class="pz-detail"><span>Celková cena bez DPH</span><strong id="pz-modal-without">0 Kč</strong></div>
-            <div class="pz-detail"><span>Celková sleva</span><strong class="pz-discount-value" id="pz-modal-discount">0 Kč</strong></div>
+            <div class="pz-detail"><span>Celková sleva</span><strong class="pz-discount-value" id="pz-modal-discount">0 Kč</strong></div><div class="pz-detail"><span class="pz-surcharge-value">Celková přirážka</span><strong class="pz-surcharge-value" id="pz-modal-surcharge">0 Kč</strong></div>
             <div class="pz-detail"><span>Hodnota DPH 21 %</span><strong id="pz-modal-vat">0 Kč</strong></div>
             <div class="pz-detail"><span>Celková cena s DPH</span><strong id="pz-modal-total">0 Kč</strong></div>
           </div>
@@ -3259,7 +3248,7 @@ visibility: hidden;
 
         <div class="pz-global-discount">
           <div class="pz-global-discount-row">
-            <div class="pz-manager-field"><label>Globální sleva</label><div class="pz-unit-wrap pz-percent-wrap"><input id="pz-global-discount" type="number" inputmode="decimal" min="0" max="100" step="1" value=""><span class="pz-unit-suffix">%</span></div></div>
+            <div class="pz-manager-field" id="pz-global-adjust-field"><label><span id="pz-global-adjust-label">Globální sleva</span> <button type="button" class="pz-adjust-toggle" id="pz-global-adjust-toggle" title="Přepnout slevu / přirážku">↔</button></label><div class="pz-unit-wrap pz-percent-wrap"><input id="pz-global-discount" type="number" inputmode="decimal" min="0" max="100" step="1" value=""><span class="pz-unit-suffix">%</span></div></div>
             <button class="pz-btn" type="button" id="pz-apply-global-discount">Použít slevu</button>
             <button class="pz-btn secondary" type="button" id="pz-remove-global-discount">Odebrat slevu</button>
           </div>
@@ -3356,7 +3345,7 @@ visibility: hidden;
       },
       materials: {
         smrk: { label:"Smrk", products:{
-          tramy:{label:"Trámy", unit:"m³", priceMode:"m3", basePrice:10500, fields:[
+          tramy:{label:"Trámy", unit:"m³", priceMode:"m3", basePrice:9500, fields:[
             {id:"height",label:"Tloušťka",type:"rangeNumber",min:8,max:32,step:2,value:10,unit:"cm"},
             {id:"width",label:"Šířka",type:"rangeNumber",min:8,max:32,step:2,value:10,unit:"cm"},
             {id:"length",label:"Délka",type:"rangeNumber",min:1,max:12,step:1,value:4,unit:"m"},
@@ -3364,9 +3353,10 @@ visibility: hidden;
           ]},
           prkna_stejna:{label:"Prkna stejně široká", unit:"m³", priceMode:"m3", basePrice:7500, fields:[
             {id:"height",label:"Tloušťka",type:"rangeNumber",min:0.1,max:20,step:0.1,value:2.5,unit:"cm"},
-            {id:"width",label:"Šířka",type:"select",value:10,unit:"cm",options:[10,12,16,22]},
+            {id:"width",label:"Šířka",type:"select",value:10,unit:"cm",options:[8,10,12,14,16,18,20,"20plus"]},
+            {id:"widthTotal",label:"Celková šířka",type:"rangeNumber",min:0.1,max:500,step:0.1,value:10,unit:"m",showWhen:{width:"20plus"}},
             {id:"length",label:"Délka",type:"select",value:4,unit:"m",options:[3,4,5]},
-            {id:"pieces",label:"Kusy",type:"rangeNumber",min:1,max:500,step:1,value:1,unit:"ks"}
+            {id:"pieces",label:"Kusy",type:"rangeNumber",min:1,max:500,step:1,value:1,unit:"ks",showWhen:{width:"__not_20plus__"}}
           ]},
           prkna_ruzne_3_5:{label:"Prkna různě široká 3–5 m", unit:"m³", priceMode:"m3_area", basePrice:7000, fields:[
             {id:"height",label:"Tloušťka",type:"rangeNumber",min:0.1,max:20,step:0.1,value:2.5,unit:"cm"},
@@ -3491,7 +3481,11 @@ visibility: hidden;
       manualUnitPrice: null,
       priceOverridden: false,
       itemDiscount: 0,
-      globalDiscount: 0
+      itemAdjustmentMode: "discount",
+      itemNote: "",
+      globalDiscount: 0,
+      globalAdjustmentMode: "discount",
+      deliveryAdjustmentMode: "discount"
     };
 
 
@@ -3502,6 +3496,7 @@ visibility: hidden;
 
 
     const $ = id => document.getElementById(id);
+    const escapeHtml = value => String(value ?? "").replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
 
     const CALCULATION_STORAGE_KEY = "pzSavedCalculationV1";
 
@@ -3625,7 +3620,11 @@ visibility: hidden;
     }
     function isVisible(field){
       if(!field.showWhen) return true;
-      return Object.keys(field.showWhen).every(k => String(state.values[k]) === String(field.showWhen[k]));
+      return Object.keys(field.showWhen).every(k => {
+        const expected=String(field.showWhen[k]);
+        if(expected==="__not_20plus__") return String(state.values[k])!=="20plus";
+        return String(state.values[k])===expected;
+      });
     }
     function catalogPrice(prod, vals){
       let price = prod.basePrice;
@@ -3655,7 +3654,11 @@ visibility: hidden;
 
 
 
-      if(prod.priceMode === "m3"){
+      if(state.product === "prkna_stejna" && String(vals.width) === "20plus"){
+        area = widthTotal * length;
+        volume = area * (height/100);
+        quantity = volume;
+      } else if(prod.priceMode === "m3"){
   area = (width/100) * length * pieces;
   volume = (width/100) * (height/100) * length * pieces;
   bm = length * pieces;
@@ -3697,13 +3700,13 @@ visibility: hidden;
       if(prod.services!==false){Object.keys(state.services).forEach(key=>{const selected=state.services[key];if(!selected)return;const def=CONFIG.services[key];let label=def.label,unitPrice=0;if(def.type==="toggle")unitPrice=def.price;else{const choice=def.choices.find(c=>c.id===selected);if(!choice)return;unitPrice=choice.price;label+=" – "+choice.label;}const amount=met.volume*unitPrice;servicesPrice+=amount;serviceRows.push({key,label,unitPrice,unit:"m³",amount});});}
       const originalWithoutVat=wood+servicesPrice;
       const discountPct=Math.max(0,Math.min(100,Number(state.itemDiscount)||0));
-      const discountAmount=originalWithoutVat*(discountPct/100);
+      const discountAmount=originalWithoutVat*(discountPct/100)*(state.itemAdjustmentMode==="surcharge"?-1:1);
       const withoutVat=originalWithoutVat-discountAmount; const vat=withoutVat*CONFIG.vat;
       const totalPricePerM3=met.volume>0?originalWithoutVat/met.volume:0;
       const pricePerPiece=met.count>0?originalWithoutVat/met.count:0;
       const pricePerBm=met.bm>0?originalWithoutVat/met.bm:0;
       const pricePerM2=met.area>0?originalWithoutVat/met.area:0;
-      return {prod,vals,met,unitPrice:price,wood,servicesPrice,serviceRows,pricePerPiece,pricePerBm,pricePerM2,totalPricePerM3,originalWithoutVat,discountPct,discountAmount,withoutVat,vat,withVat:withoutVat+vat};
+      return {prod,vals,met,unitPrice:price,wood,servicesPrice,serviceRows,pricePerPiece,pricePerBm,pricePerM2,totalPricePerM3,originalWithoutVat,discountPct,discountAmount,adjustmentMode:state.itemAdjustmentMode,withoutVat,vat,withVat:withoutVat+vat};
     }
     function titleFor(item){
       const mat = CONFIG.materials[item.material].label;
@@ -3720,6 +3723,10 @@ visibility: hidden;
 
       if(p.priceMode==="m"){
         return "4 cm × 6 cm × " + n(v.length) + " m | " + n(v.pieces || 0) + " ks";
+      }
+
+      if(String(v.width)==="20plus"){
+        return n(v.height) + " cm × 20+ cm (celková šířka " + n(v.widthTotal) + " m) × " + n(v.length) + " m";
       }
 
       if(v.widthType==="total" || p.priceMode==="m3_area"){
@@ -3757,7 +3764,7 @@ visibility: hidden;
         state.material = btn.dataset.material;
         state.product = Object.keys(CONFIG.materials[state.material].products)[0];
         state.values = defaultValues(productDef());
-        state.services = {}; state.manualUnitPrice=null; state.priceOverridden=false; state.itemDiscount=0;
+        state.services = {}; state.manualUnitPrice=null; state.priceOverridden=false; state.itemDiscount=0; state.itemAdjustmentMode="discount";
         renderAll();
       });
     }
@@ -3771,7 +3778,7 @@ visibility: hidden;
       document.querySelectorAll("[data-product]").forEach(btn=>btn.onclick=()=>{
         state.product = btn.dataset.product;
         state.values = defaultValues(productDef());
-        state.services = {}; state.manualUnitPrice=null; state.priceOverridden=false; state.itemDiscount=0;
+        state.services = {}; state.manualUnitPrice=null; state.priceOverridden=false; state.itemDiscount=0; state.itemAdjustmentMode="discount";
         renderAll();
       });
     }
@@ -3808,13 +3815,13 @@ visibility: hidden;
       const currentPrice=state.priceOverridden?Number(state.manualUnitPrice||0):catalogPrice(prod,state.values);
       const priceUnit=prod.priceMode==="m"?"Kč/bm":prod.priceMode==="piece"?"Kč/ks":"Kč/m³";
       let html=`<div class="pz-manager-field" style="margin-bottom:14px"><label>Cena za ${prod.priceMode==="m"?"bm":prod.priceMode==="piece"?"kus":"m³"}</label><div class="pz-unit-wrap"><input id="pz-manager-unit-price" type="number" inputmode="decimal" min="0" step="1" value="${currentPrice}"><span class="pz-unit-suffix">${priceUnit}</span></div></div>`;
-      html+=prod.fields.map(f=>{if(!isVisible(f))return"";const val=state.values[f.id];let control="";if(f.type==="fixed"){control=`<div class="pz-fixed">${f.value} ${f.unit||""}</div>`;state.values[f.id]=f.value;}else if(f.type==="rangeNumber"){control=`<input data-field="${f.id}" type="number" inputmode="decimal" min="${f.min}" max="${f.max}" step="${f.step}" value="${val}">`;}else if(f.type==="select"){control=`<select data-field="${f.id}">${f.options.map(o=>{const label=state.material==="smrk"&&state.product==="prkna_stejna"&&f.id==="width"&&Number(o)===22?"20+ cm":`${o} ${f.unit||""}`;return `<option value="${o}" ${String(o)===String(val)?"selected":""}>${label}</option>`}).join("")}</select>`;}else if(f.type==="selectText"){const locked=state.product==="fosny"&&state.values.edgeType==="neohranene"&&f.id==="widthType";control=locked?`<select disabled><option selected>Různě široké</option></select>`:`<select data-field="${f.id}">${f.options.map(o=>`<option value="${o[0]}" ${String(o[0])===String(val)?"selected":""}>${o[1]}</option>`).join("")}</select>`;}return `<div class="pz-field" id="fieldwrap-${f.id}"><label>${f.label}${f.unit&&f.type!=="select"?" ("+f.unit+")":""}</label>${control}<div class="pz-error">Zadejte platnou hodnotu.</div></div>`;}).join("");
-      html+=`<div class="pz-manager-field"><label>Sleva na položku</label><div class="pz-unit-wrap pz-percent-wrap"><input id="pz-item-discount" type="number" inputmode="decimal" min="0" max="100" step="1" value="${Number(state.itemDiscount)>0?Number(state.itemDiscount):""}"><span class="pz-unit-suffix">%</span></div></div>`;
+      html+=prod.fields.map(f=>{if(!isVisible(f))return"";const val=state.values[f.id];let control="";if(f.type==="fixed"){control=`<div class="pz-fixed">${f.value} ${f.unit||""}</div>`;state.values[f.id]=f.value;}else if(f.type==="rangeNumber"){control=`<input data-field="${f.id}" type="number" inputmode="decimal" min="${f.min}" max="${f.max}" step="${f.step}" value="${val}">`;}else if(f.type==="select"){control=`<select data-field="${f.id}">${f.options.map(o=>{const label=state.material==="smrk"&&state.product==="prkna_stejna"&&f.id==="width"&&String(o)==="20plus"?"20+ cm":`${o} ${f.unit||""}`;return `<option value="${o}" ${String(o)===String(val)?"selected":""}>${label}</option>`}).join("")}</select>`;}else if(f.type==="selectText"){const locked=state.product==="fosny"&&state.values.edgeType==="neohranene"&&f.id==="widthType";control=locked?`<select disabled><option selected>Různě široké</option></select>`:`<select data-field="${f.id}">${f.options.map(o=>`<option value="${o[0]}" ${String(o[0])===String(val)?"selected":""}>${o[1]}</option>`).join("")}</select>`;}return `<div class="pz-field" id="fieldwrap-${f.id}"><label>${f.label}${f.unit&&f.type!=="select"?" ("+f.unit+")":""}</label>${control}<div class="pz-error">Zadejte platnou hodnotu.</div></div>`;}).join("");
+      html+=`<div class="pz-manager-field ${state.itemAdjustmentMode==="surcharge"?"pz-surcharge-field":""}" id="pz-item-adjust-field"><label><span id="pz-item-adjust-label">${state.itemAdjustmentMode==="surcharge"?"Přirážka":"Sleva"} na položku</span> <button type="button" class="pz-adjust-toggle" id="pz-item-adjust-toggle" title="Přepnout slevu / přirážku">↔</button></label><div class="pz-unit-wrap pz-percent-wrap"><input id="pz-item-discount" type="number" inputmode="decimal" min="0" max="100" step="1" value="${Number(state.itemDiscount)>0?Number(state.itemDiscount):""}"><span class="pz-unit-suffix">%</span></div></div>`;
       $("pz-params").innerHTML=html;
       const priceInput=$("pz-manager-unit-price"); if(priceInput){pzNumericOnly(priceInput);priceInput.oninput=()=>{state.manualUnitPrice=Math.max(0,Number(priceInput.value)||0);state.priceOverridden=true;updatePreview();saveDraft();};}
-      const discountInput=$("pz-item-discount"); if(discountInput){pzNumericOnly(discountInput);discountInput.oninput=()=>{state.itemDiscount=Math.max(0,Math.min(100,Number(discountInput.value)||0));updatePreview();};}
+      $("pz-item-adjust-toggle")?.addEventListener("click",()=>{state.itemAdjustmentMode=state.itemAdjustmentMode==="surcharge"?"discount":"surcharge";$("pz-item-adjust-label").textContent=(state.itemAdjustmentMode==="surcharge"?"Přirážka":"Sleva")+" na položku";$("pz-item-adjust-field")?.classList.toggle("pz-surcharge-field",state.itemAdjustmentMode==="surcharge");updatePreview();}); const discountInput=$("pz-item-discount"); if(discountInput){pzNumericOnly(discountInput);discountInput.oninput=()=>{state.itemDiscount=Math.max(0,Math.min(100,Number(discountInput.value)||0));updatePreview();};}
       const inputs=[...document.querySelectorAll("#pz-params [data-field]")];
-      inputs.forEach((input,idx)=>{const key=input.dataset.field;if(input.type==="number"){pzNumericOnly(input);input.addEventListener("focus",()=>input.select());}input.oninput=input.onchange=()=>{state.values[key]=input.type==="number"?Number(input.value):input.value;if(key==="edgeType"&&!state.priceOverridden){state.manualUnitPrice=null;}if(key==="height"&&!state.priceOverridden){state.manualUnitPrice=null;}if(key==="edgeType"||key==="widthType"){renderParams();renderServices();}updatePreview();saveDraft();};});
+      inputs.forEach((input,idx)=>{const key=input.dataset.field;if(input.type==="number"){pzNumericOnly(input);input.addEventListener("focus",()=>input.select());}input.oninput=input.onchange=()=>{state.values[key]=input.type==="number"?Number(input.value):input.value;if(key==="edgeType"&&!state.priceOverridden){state.manualUnitPrice=null;}if(key==="height"&&!state.priceOverridden){state.manualUnitPrice=null;}if(key==="edgeType"||key==="widthType"||(key==="width"&&state.product==="prkna_stejna")){renderParams();renderServices();}updatePreview();saveDraft();};});
       pzBindEnter($("pz-params"));
     }
     function renderServices(){
@@ -3987,8 +3994,7 @@ const s = CONFIG.services[key];
 
 
 
-// Hoblování řešíme zvlášť
-if(key === "planing"){
+// Hoblování řešíme zvlášťif(key === "planing"){
 
 
 
@@ -4943,16 +4949,16 @@ document.querySelectorAll("[data-service-choice]").forEach(control=>{
       let rows="";
       if(state.product==="obecne") rows=row("Objem","pz-volume")+row("Cena za m³","pz-price-m3");
       else if(state.product==="tramy") rows=row("Běžné metry","pz-bm-pcs")+row("Objem","pz-volume")+row("Cena za kus","pz-price-piece")+row("Cena za bm","pz-price-bm")+row("Cena za m³","pz-price-m3");
-      else if(state.product==="prkna_stejna") rows=row("Běžné metry","pz-bm-pcs")+row("Objem","pz-volume")+row("Plocha","pz-area")+row("Cena za kus","pz-price-piece")+row("Cena za bm","pz-price-bm")+row("Cena za m²","pz-price-m2")+row("Cena za m³","pz-price-m3");
+      else if(state.product==="prkna_stejna") rows=String(c.vals.width)==="20plus"?row("Objem","pz-volume")+row("Plocha","pz-area")+row("Cena za m²","pz-price-m2")+row("Cena za m³","pz-price-m3"):row("Běžné metry","pz-bm-pcs")+row("Objem","pz-volume")+row("Plocha","pz-area")+row("Cena za kus","pz-price-piece")+row("Cena za bm","pz-price-bm")+row("Cena za m²","pz-price-m2")+row("Cena za m³","pz-price-m3");
       else if(state.product==="prkna_ruzne_3_5"||state.product==="prkna_ruzne_08_25") rows=row("Objem","pz-volume")+row("Plocha","pz-area")+row("Cena za m²","pz-price-m2")+row("Cena za m³","pz-price-m3");
       else if(state.product==="fosny"){const same=c.prod.priceMode==="fosny"&&c.vals.edgeType==="ohranene"&&c.vals.widthType==="same";rows=same?row("Běžné metry","pz-bm-pcs")+row("Objem","pz-volume")+row("Cena za kus","pz-price-piece")+row("Cena za bm","pz-price-bm")+row("Cena za m³","pz-price-m3"):row("Objem","pz-volume")+row("Plocha","pz-area")+row("Cena za m²","pz-price-m2")+row("Cena za m³","pz-price-m3");}
       else if(state.product==="lat_3_5"||state.product==="lat_2") rows=row("Běžné metry","pz-bm-pcs")+row("Objem","pz-volume")+row("Cena za kus","pz-price-piece")+row("Cena za bm","pz-price-bm")+row("Cena za m³","pz-price-m3");
       else if(state.product==="odrezky") rows=row("Objem","pz-scrap-volume")+row("Cena za ks","pz-price-piece");
-      rows+=row("Mezisoučet","pz-without-original","pz-strong-row")+row("Sleva","pz-discount","pz-strong-row pz-discount-row")+row("DPH 21 %","pz-vat","pz-strong-row");
+      rows+=row("Mezisoučet","pz-without-original","pz-strong-row")+row(state.itemAdjustmentMode==="surcharge"?"Přirážka":"Sleva","pz-discount",state.itemAdjustmentMode==="surcharge"?"pz-strong-row pz-surcharge-row":"pz-strong-row pz-discount-row")+row("DPH 21 %","pz-vat","pz-strong-row");
       rows+=`<div class="pz-total"><span>Celková cena bez DPH</span><span id="pz-without-vat">—</span><small class="pz-secondary-price" id="pz-preview-secondary"></small></div>`; box.innerHTML=rows;
       const set=(id,v)=>{const e=$(id);if(e)e.textContent=v};
-      set("pz-bm-pcs",c.met.bm>0?fmtNum(c.met.bm,1)+" bm":"—");set("pz-volume",c.met.volume>0?fmtM3(c.met.volume):"—");set("pz-area",c.met.area>0?fmtNum(c.met.area,1)+" m²":"—");set("pz-price-piece",c.pricePerPiece>0?fmtMoney(c.pricePerPiece):"—");set("pz-price-bm",c.pricePerBm>0?fmtMoney(c.pricePerBm):"—");set("pz-price-m2",c.pricePerM2>0?fmtMoney(c.pricePerM2):"—");set("pz-price-m3",c.totalPricePerM3>0?fmtMoney(c.totalPricePerM3):"—");set("pz-without-original",fmtMoney(c.originalWithoutVat));set("pz-discount",c.discountAmount>0?"-"+fmtMoney(c.discountAmount):"0 Kč");set("pz-vat",fmtMoney(c.vat));set("pz-without-vat",fmtMoney(c.withoutVat));
-      const sec=$("pz-preview-secondary");if(sec)sec.textContent=`Cena bez slevy: ${fmtMoney(c.originalWithoutVat)} • Cena s DPH: ${fmtMoney(c.withVat)}`;if(state.product==="odrezky"){set("pz-scrap-volume","1–2 m³");set("pz-price-piece",fmtMoney(c.unitPrice));}validate();
+      set("pz-bm-pcs",c.met.bm>0?fmtNum(c.met.bm,1)+" bm":"—");set("pz-volume",c.met.volume>0?fmtM3(c.met.volume):"—");set("pz-area",c.met.area>0?fmtNum(c.met.area,1)+" m²":"—");set("pz-price-piece",c.pricePerPiece>0?fmtMoney(c.pricePerPiece):"—");set("pz-price-bm",c.pricePerBm>0?fmtMoney(c.pricePerBm):"—");set("pz-price-m2",c.pricePerM2>0?fmtMoney(c.pricePerM2):"—");set("pz-price-m3",c.totalPricePerM3>0?fmtMoney(c.totalPricePerM3):"—");set("pz-without-original",fmtMoney(c.originalWithoutVat));set("pz-discount",c.discountAmount<0?"+"+fmtMoney(-c.discountAmount):c.discountAmount>0?"-"+fmtMoney(c.discountAmount):"0 Kč");set("pz-vat",fmtMoney(c.vat));set("pz-without-vat",fmtMoney(c.withoutVat));
+      const sec=$("pz-preview-secondary");if(sec)sec.textContent=`Cena před úpravou: ${fmtMoney(c.originalWithoutVat)} • Cena s DPH: ${fmtMoney(c.withVat)}`;if(state.product==="odrezky"){set("pz-scrap-volume","1–2 m³");set("pz-price-piece",fmtMoney(c.unitPrice));}validate();
     }
 
 
@@ -4970,6 +4976,8 @@ document.querySelectorAll("[data-service-choice]").forEach(control=>{
         manualUnitPrice: calc.unitPrice,
         priceOverridden: state.priceOverridden,
         discountPct: calc.discountPct,
+        adjustmentMode: state.itemAdjustmentMode,
+        note: String(state.itemNote || "").trim(),
         createdAt: new Date().toISOString()
       };
       if(state.editingId){
@@ -4985,8 +4993,7 @@ document.querySelectorAll("[data-service-choice]").forEach(control=>{
         state.cart.push(item);
       }
       showToast("Položka byla přidána do kalkulace");
-      bumpCart();
-      resetForm();
+      bumpCart();      resetForm();
       renderCart();
       saveDraft(true);
     }
@@ -4994,8 +5001,9 @@ document.querySelectorAll("[data-service-choice]").forEach(control=>{
       state.material = "smrk";
       state.product = "tramy";
       state.values = defaultValues(productDef());
-      state.services = {}; state.manualUnitPrice=null; state.priceOverridden=false; state.itemDiscount=0;
+      state.services = {}; state.manualUnitPrice=null; state.priceOverridden=false; state.itemDiscount=0; state.itemAdjustmentMode="discount"; state.itemNote="";
       renderAll();
+      if($("pz-item-note")) $("pz-item-note").value="";
     }
     function editItem(id){
       const item = state.cart.find(i=>i.id===id);
@@ -5014,13 +5022,15 @@ document.querySelectorAll("[data-service-choice]").forEach(control=>{
       state.product = item.product;
       state.values = JSON.parse(JSON.stringify(item.values));
       state.services = JSON.parse(JSON.stringify(item.services));
-      state.manualUnitPrice = Number(item.manualUnitPrice ?? item.calc?.unitPrice ?? 0); state.priceOverridden=!!item.priceOverridden; state.itemDiscount=Number(item.discountPct ?? item.calc?.discountPct ?? 0);
+      state.manualUnitPrice = Number(item.manualUnitPrice ?? item.calc?.unitPrice ?? 0); state.priceOverridden=!!item.priceOverridden; state.itemDiscount=Number(item.discountPct ?? item.calc?.discountPct ?? 0); state.itemAdjustmentMode=item.adjustmentMode||item.calc?.adjustmentMode||"discount";
+      state.itemNote = String(item.note || "");
       state.editingId = id;
       $("pz-add-btn").textContent = "Uložit změny";
       $("pz-cancel-edit").style.display = "inline-block";
       $("pz-edit-info").textContent = "Upravujete položku " + id + ". Položka je po dobu úpravy dočasně vyjmuta z kalkulace.";
       closeCart();
       renderAll();
+      if($("pz-item-note")) $("pz-item-note").value=state.itemNote;
       window.scrollTo({top:0,behavior:"smooth"});
     }
     function duplicateItem(id){
@@ -5051,10 +5061,16 @@ document.querySelectorAll("[data-service-choice]").forEach(control=>{
     }
     function effectivePricing(item){
       const global=Math.max(0,Math.min(100,Number(state.globalDiscount)||0));
-      if(item.type==="delivery"){const original=Number(item.originalWithoutVat ?? item.priceWithoutVat ?? 0);const own=Number(item.discountPct)||0;const pct=own>0?own:global;const discount=original*pct/100;const without=original-discount;return {original,pct,discount,without,vat:without*CONFIG.vat,with:without*(1+CONFIG.vat)};}
-      const c=item.calc||{};const original=Number(c.originalWithoutVat ?? c.withoutVat ?? 0);const own=Number(item.discountPct ?? c.discountPct)||0;const pct=own>0?own:global;const discount=original*pct/100;const without=original-discount;return {original,pct,discount,without,vat:without*CONFIG.vat,with:without*(1+CONFIG.vat)};
+      const delivery=item.type==="delivery",c=item.calc||{};
+      const original=delivery?Number(item.originalWithoutVat??item.priceWithoutVat??0):Number(c.originalWithoutVat??c.withoutVat??0);
+      const own=Number(delivery?item.discountPct:(item.discountPct??c.discountPct))||0;
+      const pct=own>0?own:global;
+      const mode=own>0?(item.adjustmentMode||c.adjustmentMode||"discount"):(state.globalAdjustmentMode||"discount");
+      const discount=original*pct/100*(mode==="surcharge"?-1:1);
+      const without=original-discount;
+      return {original,pct,mode,discount,without,vat:without*CONFIG.vat,with:without*(1+CONFIG.vat)};
     }
-    function totals(){const t={volume:0,wood:0,services:0,original:0,discount:0,without:0,vat:0,with:0};state.cart.forEach(i=>{const p=effectivePricing(i);t.original+=p.original;t.discount+=p.discount;t.without+=p.without;t.vat+=p.vat;t.with+=p.with;if(i.type!=="delivery"){t.volume+=i.calc?.met?.volume||0;t.wood+=i.calc?.wood||0;t.services+=i.calc?.servicesPrice||0;}});return t;}
+    function totals(){const t={volume:0,wood:0,services:0,original:0,discount:0,surcharge:0,without:0,vat:0,with:0};state.cart.forEach(i=>{const p=effectivePricing(i);t.original+=p.original;t.discount+=Math.max(0,p.discount);t.surcharge+=Math.max(0,-p.discount);t.without+=p.without;t.vat+=p.vat;t.with+=p.with;if(i.type!=="delivery"){t.volume+=i.calc?.met?.volume||0;t.wood+=i.calc?.wood||0;t.services+=i.calc?.servicesPrice||0;}});return t;}
     function itemPreviewRows(item){
       if(!item || item.type === "delivery" || !item.calc) return [];
       const c=item.calc;
@@ -5068,13 +5084,20 @@ document.querySelectorAll("[data-service-choice]").forEach(control=>{
         add("Cena za bm", c.pricePerBm > 0 ? fmtMoney(c.pricePerBm) : "—");
         add("Cena za m³", c.totalPricePerM3 > 0 ? fmtMoney(c.totalPricePerM3) : "—");
       } else if(item.product === "prkna_stejna"){
-        add("Běžné metry", c.met.bm > 0 ? fmtNum(c.met.bm,1)+" bm" : "—");
-        add("Objem", c.met.volume > 0 ? fmtM3(c.met.volume) : "—");
-        add("Plocha", c.met.area > 0 ? fmtNum(c.met.area,1)+" m²" : "—");
-        add("Cena za kus", c.pricePerPiece > 0 ? fmtMoney(c.pricePerPiece) : "—");
-        add("Cena za bm", c.pricePerBm > 0 ? fmtMoney(c.pricePerBm) : "—");
-        add("Cena za m²", c.pricePerM2 > 0 ? fmtMoney(c.pricePerM2) : "—");
-        add("Cena za m³", c.totalPricePerM3 > 0 ? fmtMoney(c.totalPricePerM3) : "—");
+        if(String(c.vals?.width)==="20plus"){
+          add("Objem", c.met.volume > 0 ? fmtM3(c.met.volume) : "—");
+          add("Plocha", c.met.area > 0 ? fmtNum(c.met.area,1)+" m²" : "—");
+          add("Cena za m²", c.pricePerM2 > 0 ? fmtMoney(c.pricePerM2) : "—");
+          add("Cena za m³", c.totalPricePerM3 > 0 ? fmtMoney(c.totalPricePerM3) : "—");
+        }else{
+          add("Běžné metry", c.met.bm > 0 ? fmtNum(c.met.bm,1)+" bm" : "—");
+          add("Objem", c.met.volume > 0 ? fmtM3(c.met.volume) : "—");
+          add("Plocha", c.met.area > 0 ? fmtNum(c.met.area,1)+" m²" : "—");
+          add("Cena za kus", c.pricePerPiece > 0 ? fmtMoney(c.pricePerPiece) : "—");
+          add("Cena za bm", c.pricePerBm > 0 ? fmtMoney(c.pricePerBm) : "—");
+          add("Cena za m²", c.pricePerM2 > 0 ? fmtMoney(c.pricePerM2) : "—");
+          add("Cena za m³", c.totalPricePerM3 > 0 ? fmtMoney(c.totalPricePerM3) : "—");
+        }
       } else if(item.product === "prkna_ruzne_3_5" || item.product === "prkna_ruzne_08_25"){
         add("Objem", c.met.volume > 0 ? fmtM3(c.met.volume) : "—");
         add("Plocha", c.met.area > 0 ? fmtNum(c.met.area,1)+" m²" : "—");
@@ -5147,7 +5170,7 @@ document.querySelectorAll("[data-service-choice]").forEach(control=>{
               <div class="pz-detail-grid">
                 <div class="pz-detail"><span>Počet kilometrů</span><strong>${fmtNum(Number(item.km || 0), 1)} km</strong></div>
                 <div class="pz-detail"><span>${item.pricingMethod==="zone-v1"?"Cenová zóna":"Cena za kilometr"}</span><strong>${PZTransport.itemDescription(item)}</strong></div>
-                <div class="pz-detail"><span>Mezisoučet</span><strong>${fmtMoney(ep.original)}</strong></div><div class="pz-detail"><span>Sleva</span><strong class="pz-discount-value">${ep.discount>0?"-"+fmtMoney(ep.discount):"0 Kč"}</strong></div><div class="pz-detail"><span>Cena dopravy bez DPH</span><strong>${fmtMoney(ep.without)}</strong></div>
+                <div class="pz-detail"><span>Mezisoučet</span><strong>${fmtMoney(ep.original)}</strong></div><div class="pz-detail"><span class="${ep.mode==="surcharge"?"pz-surcharge-value":""}">${ep.mode==="surcharge"?"Přirážka":"Sleva"}</span><strong class="${ep.mode==="surcharge"?"pz-surcharge-value":"pz-discount-value"}">${ep.discount<0?"+"+fmtMoney(-ep.discount):ep.discount>0?"-"+fmtMoney(ep.discount):"0 Kč"}</strong></div><div class="pz-detail"><span>Cena dopravy bez DPH</span><strong>${fmtMoney(ep.without)}</strong></div>
               </div>
               <div class="pz-actions">
                 <button class="pz-btn secondary" type="button" data-edit-delivery="${item.id}">Upravit</button>
@@ -5180,8 +5203,9 @@ document.querySelectorAll("[data-service-choice]").forEach(control=>{
                 ${itemQuantityLine(item) ? `<span class="pz-muted">${itemQuantityLine(item)}</span><br>` : ""}
                 <span class="pz-muted">ID: ${item.id}</span><br>
                 ${servicesHtml}
+                ${item.note ? `<br><span class="pz-muted"><strong>Poznámka:</strong> ${escapeHtml(item.note)}</span>` : ""}
               </div>
-              <div><strong>${fmtMoney(effectivePricing(item).without)} bez DPH</strong><br><span class="pz-muted">s DPH ${fmtMoney(effectivePricing(item).with)}</span></div>
+              <div><strong>${fmtMoney(effectivePricing(item).without)} bez DPH</strong><br><span class="pz-muted">s DPH ${fmtMoney(effectivePricing(item).with)}</span>${Math.abs(effectivePricing(item).discount)>0.000001?`<br><span class="${effectivePricing(item).discount<0?"pz-surcharge-value":"pz-discount-value"}" style="font-size:0.86em;font-weight:600">${effectivePricing(item).discount<0?"Přirážka +"+fmtMoney(-effectivePricing(item).discount):"Sleva −"+fmtMoney(effectivePricing(item).discount)}</span>`:""}</div>
             </div>
 
             <div class="pz-print-only pz-pdf-item-content">
@@ -5203,6 +5227,7 @@ document.querySelectorAll("[data-service-choice]").forEach(control=>{
                   <span>SLUŽBY</span>
                   <strong>${pdfServices}</strong>
                 </div>
+                ${item.note ? `<div class="pz-pdf-box pz-pdf-box-wide"><span>POZNÁMKA</span><strong>${escapeHtml(item.note)}</strong></div>` : ""}
                 <div class="pz-pdf-box">
                   <span>CENA POLOŽKY S DPH</span>
                   <strong>${fmtMoney(c.withVat)}</strong>
@@ -5239,7 +5264,7 @@ document.querySelectorAll("[data-service-choice]").forEach(control=>{
       updateTotals();
       if(typeof pzQueueAutosave === "function") pzQueueAutosave();
     }
-    function updateTotals(){const t=totals();const deliveryWithout=state.cart.filter(i=>i.type==="delivery").reduce((sum,i)=>sum+effectivePricing(i).without,0);$("pz-cart-count").textContent=state.cart.length;$("pz-cart-total-top").textContent=fmtMoney(t.without)+" bez DPH";$("pz-sum-count").textContent=state.cart.length;$("pz-sum-transport").textContent=fmtMoney(deliveryWithout);$("pz-sum-volume").textContent=fmtM3(t.volume);$("pz-sum-without").textContent=fmtMoney(t.without);if($("pz-sum-discount"))$("pz-sum-discount").textContent=t.discount>0?"-"+fmtMoney(t.discount):"0 Kč";$("pz-sum-vat").textContent=fmtMoney(t.vat);$("pz-sum-with").textContent=fmtMoney(t.with);$("pz-modal-count").textContent=state.cart.length;$("pz-modal-transport").textContent=fmtMoney(deliveryWithout);$("pz-modal-volume").textContent=fmtM3(t.volume);$("pz-modal-without").textContent=fmtMoney(t.without);if($("pz-modal-discount"))$("pz-modal-discount").textContent=t.discount>0?"-"+fmtMoney(t.discount):"0 Kč";$("pz-modal-vat").textContent=fmtMoney(t.vat);$("pz-modal-total").textContent=fmtMoney(t.with);}
+    function updateTotals(){const t=totals();const deliveryWithout=state.cart.filter(i=>i.type==="delivery").reduce((sum,i)=>sum+effectivePricing(i).without,0);$("pz-cart-count").textContent=state.cart.length;$("pz-cart-total-top").textContent=fmtMoney(t.without)+" bez DPH";$("pz-sum-count").textContent=state.cart.length;$("pz-sum-transport").textContent=fmtMoney(deliveryWithout);$("pz-sum-volume").textContent=fmtM3(t.volume);$("pz-sum-without").textContent=fmtMoney(t.without);if($("pz-sum-discount"))$("pz-sum-discount").textContent=t.discount>0?"-"+fmtMoney(t.discount):"0 Kč";if($("pz-sum-surcharge"))$("pz-sum-surcharge").textContent=t.surcharge>0?"+"+fmtMoney(t.surcharge):"0 Kč";$("pz-sum-vat").textContent=fmtMoney(t.vat);$("pz-sum-with").textContent=fmtMoney(t.with);$("pz-modal-count").textContent=state.cart.length;$("pz-modal-transport").textContent=fmtMoney(deliveryWithout);$("pz-modal-volume").textContent=fmtM3(t.volume);$("pz-modal-without").textContent=fmtMoney(t.without);if($("pz-modal-discount"))$("pz-modal-discount").textContent=t.discount>0?"-"+fmtMoney(t.discount):"0 Kč";if($("pz-modal-surcharge"))$("pz-modal-surcharge").textContent=t.surcharge>0?"+"+fmtMoney(t.surcharge):"0 Kč";$("pz-modal-vat").textContent=fmtMoney(t.vat);$("pz-modal-total").textContent=fmtMoney(t.with);}
     function renderPdfDelivery(){
       const section = $("pz-pdf-delivery-section");
       const grid = $("pz-pdf-delivery-grid");
@@ -5296,7 +5321,7 @@ document.querySelectorAll("[data-service-choice]").forEach(control=>{
     function unlockPageForCart(){document.documentElement.classList.remove("pz-cart-page-locked");document.body.classList.remove("pz-cart-page-locked");window.scrollTo(0,pzCartScrollY);}
     function openCart(){ $("pz-cart-modal").classList.add("open"); $("pz-cart-modal").setAttribute("aria-hidden","false"); lockPageForCart(); renderCart(); }
     function closeCart(){ $("pz-cart-modal").classList.remove("open"); $("pz-cart-modal").setAttribute("aria-hidden","true"); unlockPageForCart(); }
-    function showToast(text){ const el=$("pz-toast"); el.textContent=text; el.classList.add("show"); setTimeout(()=>el.classList.remove("show"),900); }
+    function showToast(text){ const el=$("pz-toast"); el.textContent=text; el.classList.add("show"); clearTimeout(window.pzToastTimer); window.pzToastTimer=setTimeout(()=>el.classList.remove("show"),1600); }
     function bumpCart(){ const b=$("pz-open-cart"); b.classList.add("pz-bump"); setTimeout(()=>b.classList.remove("pz-bump"),450); }
     function cleanupPrintIsolation(){
       const old = document.getElementById("pz-print-isolation");
@@ -5388,7 +5413,7 @@ const PZTransport=(()=>{
  const types=['car','small-trailer','small-trailer-unloading','large-trailer','large-trailer-unloading'];
  const rates=[[450,600,750,900,1050],[1200,1600,2000,2400,2800],[1950,2600,3250,3900,4550],[2700,3600,4750,5400,6300],[3450,4600,6250,6900,8050],[4200,5600,7000,8400,9800],[6030,null,null,null,null]];
  function quote(km,type){const band=Number.isFinite(km)&&km>=0?limits.findIndex(l=>km<=l):-1,vehicle=types.indexOf(type);const base=band>=0&&vehicle>=0?rates[band][vehicle]:null;return {band,zone:band>=0?names[band]:'Mimo rozvozové zóny',base,available:base!==null,agreement:base!==null&&vehicle>0&&(band===4||band===5),message:band<0?'Na tuto adresu nedoručujeme':vehicle<0?'Vyberte typ dopravy':base===null?'Touto soupravou na tuto adresu nedoručujeme':vehicle>0&&(band===4||band===5)?'Po domluvě':''}}
- function price(amount,pct=0){const original=String(amount).trim()===''?NaN:Number(amount),discountPct=Math.max(0,Math.min(100,Number(pct)||0));if(!Number.isFinite(original)||original<0)return null;const discount=original*discountPct/100,without=original-discount;return {original,discountPct,discount,without,vat:without*.21,withVat:without*1.21}}
+ function price(amount,pct=0,mode="discount"){const original=String(amount).trim()===''?NaN:Number(amount),discountPct=Math.max(0,Math.min(100,Number(pct)||0));if(!Number.isFinite(original)||original<0)return null;const discount=original*discountPct/100*(mode==="surcharge"?-1:1),without=original-discount;return {original,discountPct,discount,without,vat:without*.21,withVat:without*1.21}}
  function itemDescription(item){return item.pricingMethod==='zone-v1'?`Zóna ${item.zoneName}${item.agreement?' · Po domluvě':''}${item.manualPrice?' · Individuální cena':''}`:`${Number(item.rate||0).toLocaleString('cs-CZ')} Kč/km`}
  return {quote,price,itemDescription};
 })();
@@ -5397,8 +5422,9 @@ const PZTransport=(()=>{
 const PZ_MAPY_KEY="pSJaQYFz_AT9plNh18H8L9ayNmXyZw6r7mD3ebkCpkY";
 let pzRouteRequest=0,pzRouteAbort=null,pzSuggestRequest=0,pzSuggestAbort=null,pzDeliveryRoute=null;
 function pzCurrentQuote(){return pzDeliveryRoute?PZTransport.quote(pzDeliveryRoute.km,$('pz-delivery-type').value):null}
+function pzDeliveryMode(){return Number($('pz-delivery-discount')?.value)>0?state.deliveryAdjustmentMode:state.globalAdjustmentMode}
 function pzDeliveryDiscount(){return Number($('pz-delivery-discount')?.value)>0?Number($('pz-delivery-discount').value):Number(state.globalDiscount)||0}
-function pzDeliveryReady(){const q=pzCurrentQuote(),price=PZTransport.price($('pz-delivery-rate').value,pzDeliveryDiscount());return !!(q?.available&&price&&pzDeliveryRoute?.addressKey===pzAddressKey())}
+function pzDeliveryReady(){const q=pzCurrentQuote(),price=PZTransport.price($('pz-delivery-rate').value,pzDeliveryDiscount(),pzDeliveryMode());return !!(q?.available&&price&&pzDeliveryRoute?.addressKey===pzAddressKey())}
 function pzAddressKey(){return ['pz-delivery-street','pz-delivery-city','pz-delivery-postcode'].map(id=>$(id)?.value.trim()||'').join('|')}
 function pzStoreRoute(){const el=$('pz-delivery-route-meta');if(el)el.value=pzDeliveryRoute?JSON.stringify(pzDeliveryRoute):''}
 function pzClearRouteDrawing(){if(routeMap){for(const layer of [deliveryMarker,deliveryRouteLine,pzRouteOutline])if(layer)routeMap.removeLayer(layer)}deliveryMarker=deliveryRouteLine=pzRouteOutline=null;pzScheduleLabels()}
@@ -5419,7 +5445,7 @@ const entries=visibleMarkers.map(x=>x.m.getTooltip()).filter(Boolean),order=pzZo
 let pzZoneLayer=null,pzOriginMarker=null,pzRouteOutline=null,pzViaMarkers=[],pzMapKind='aerial',pzMapLayers=null;
 const pzStopLetter=index=>String.fromCharCode(66+index);
 function pzSyncZoneFocus(){if(!pzZoneLayer)return;const active=pzDeliveryRoute?[PZTransport.quote(pzDeliveryRoute.km,$('pz-delivery-type').value).band].filter(i=>i>=0):null;pzZoneLayer.eachLayer(layer=>layer.setStyle(pzZoneStyle(layer.feature.properties.index,active)));pzLabelState(active)}
-function pzPointPopup(marker){const content=document.createElement('div');for(const member of marker._nearbyPoints||[marker]){const h=document.createElement('h3');h.textContent=member._letter==='A'?'A · Pila Železnice – výchozí bod':'B · '+(pzDeliveryRoute?.label||'Zadaná adresa');h.style.color=member._letter==='A'?'#104c29':'#c32c38';content.append(h);if(member._letter==='A'){const note=document.createElement('p');note.textContent='Výchozí bod všech tras a výpočtů ceny dopravy.';content.append(note)}else if(pzDeliveryRoute){const q=pzCurrentQuote(),price=PZTransport.price($('pz-delivery-rate').value,pzDeliveryDiscount());for(const text of ['Silniční vzdálenost od pily: '+fmtNum(pzDeliveryRoute.km,3)+' km',q?.zone||'', $('pz-delivery-type').selectedOptions[0]?.textContent||'',q?.available&&price?fmtMoney(price.without)+' bez DPH · '+fmtMoney(price.withVat)+' s DPH':'',q?.message||''])if(text){const p=document.createElement('p');p.textContent=text;content.append(p)}}}return content}
+function pzPointPopup(marker){const content=document.createElement('div');for(const member of marker._nearbyPoints||[marker]){const h=document.createElement('h3');h.textContent=member._letter==='A'?'A · Pila Železnice – výchozí bod':'B · '+(pzDeliveryRoute?.label||'Zadaná adresa');h.style.color=member._letter==='A'?'#104c29':'#c32c38';content.append(h);if(member._letter==='A'){const note=document.createElement('p');note.textContent='Výchozí bod všech tras a výpočtů ceny dopravy.';content.append(note)}else if(pzDeliveryRoute){const q=pzCurrentQuote(),price=PZTransport.price($('pz-delivery-rate').value,pzDeliveryDiscount(),pzDeliveryMode());for(const text of ['Silniční vzdálenost od pily: '+fmtNum(pzDeliveryRoute.km,3)+' km',q?.zone||'', $('pz-delivery-type').selectedOptions[0]?.textContent||'',q?.available&&price?fmtMoney(price.without)+' bez DPH · '+fmtMoney(price.withVat)+' s DPH':'',q?.message||''])if(text){const p=document.createElement('p');p.textContent=text;content.append(p)}}}return content}
 function pzSetMapKind(kind){if(!['aerial','basic','outdoor'].includes(kind))return;pzMapKind=kind;if(routeMap&&pzMapLayers){Object.values(pzMapLayers).forEach(layer=>{if(routeMap.hasLayer(layer))routeMap.removeLayer(layer)});pzMapLayers[kind].addTo(routeMap);pzScheduleLabels()}document.querySelectorAll('[data-pz-map-kind]').forEach(b=>{const hit=b.dataset.pzMapKind===kind;b.classList.toggle('active',hit);b.setAttribute('aria-pressed',String(hit))})}
 function pzRenderMapSettings(content){content.replaceChildren();const box=document.createElement('section');box.className='pz-map-settings-card';const title=document.createElement('h3');title.textContent='Mapový podklad';const note=document.createElement('p');note.textContent='Vyberte podklad mapy dopravy. Při novém otevření aplikace se nastaví letecká mapa.';box.append(title,note);for(const [kind,name,description] of [['aerial','Letecká','Letecké snímky s názvy míst'],['basic','Základní','Silnice, obce a adresy'],['outdoor','Turistická','Terén a turistické cesty']]){const b=document.createElement('button');b.type='button';b.dataset.pzMapKind=kind;b.className='pz-map-kind';b.setAttribute('aria-pressed',String(kind===pzMapKind));b.classList.toggle('active',kind===pzMapKind);const strong=document.createElement('strong');strong.textContent=name;const small=document.createElement('small');small.textContent=description;b.append(strong,small);b.onclick=()=>pzSetMapKind(kind);box.append(b)}content.append(box)}
 let pzMapViewFrame=0;
@@ -5446,11 +5472,11 @@ async function selectDeliveryAddress(item){
  try{const data=await pzMapyJSON('routing/route',{start:START_COORDS.join(','),end:coords.join(','),routeType:'car_fast',format:'geojson'},abort.signal);if(id!==pzRouteRequest)return;if(!Number.isFinite(data.length)||data.length<0||!data.geometry)throw new Error('Mapy.com nevrátily platnou trasu.');pzDeliveryRoute={km:data.length/1000,coords,label:[item.name,city,item.zip].filter(Boolean).join(', '),geometry:data.geometry,addressKey:pzAddressKey()};$('pz-delivery-km').value=String(pzDeliveryRoute.km);pzStoreRoute();document.querySelectorAll('#pz-delivery-section .pz-field-check').forEach(check=>{check.classList.remove('is-invalid');check.classList.add('is-visible');check.textContent='✓'});pzDrawDeliveryRoute();pzSetZonePrice(false);status.textContent='Adresa ověřena. Cena odpovídá silniční vzdálenosti od Pily Železnice.';if(!item.zip)status.textContent+=' Mapy.com pro tuto adresu neuvádí PSČ.';if(typeof pzQueueAutosave==='function')pzQueueAutosave()}catch(e){if(id===pzRouteRequest){pzDeliveryRoute=null;selectedDeliveryCoords=null;pzStoreRoute();updateDeliveryLivePreview();status.textContent=e.name==='AbortError'?'Trasu se nepodařilo načíst včas. Vyberte adresu znovu.':e.message;updateDeliveryAddButton()}}finally{clearTimeout(timer)}
 }
 function pzSetZonePrice(notify){const q=pzCurrentQuote();$('pz-delivery-rate').value=q?.available?String(q.base):'0';updateDeliveryLivePreview();updateDeliveryAddButton();if(notify&&q?.message&&$('pz-delivery-type').value)pzDeliveryNotice(q.message==='Po domluvě'?'Doprava touto soupravou je na tuto vzdálenost možná pouze po domluvě.':q.message)}
-function updateDeliveryLivePreview(){const q=pzCurrentQuote(),p=PZTransport.price($('pz-delivery-rate')?.value,pzDeliveryDiscount());const ready=q?.available&&p;const set=(id,v)=>{if($(id))$(id).textContent=v};set('pz-delivery-live-km',pzDeliveryRoute?fmtNum(pzDeliveryRoute.km,3)+' km':'—');set('pz-delivery-live-rate',q?q.zone:'Vyberte adresu');set('pz-delivery-live-subtotal',ready?fmtMoney(p.original):'—');set('pz-delivery-live-discount',ready&&p.discount>0?'-'+fmtMoney(p.discount):'0 Kč');set('pz-delivery-live-vat',ready?fmtMoney(p.vat):'—');set('pz-delivery-price',ready?fmtMoney(p.without):'—');set('pz-delivery-secondary',ready?'Cena bez slevy: '+fmtMoney(p.original)+' • Cena s DPH: '+fmtMoney(p.withVat):'');const warning=$('pz-delivery-zone-warning');if(warning){warning.textContent=q?.message||(!pzDeliveryRoute?'Vyberte konkrétní adresu z našeptávače.':'');warning.hidden=!warning.textContent}const manual=$('pz-delivery-manual-note');if(manual){manual.hidden=!(ready&&p.original!==q.base);manual.textContent='Individuální cena správce · ceníková cena zóny '+(q?.available?fmtMoney(q.base):'—')+' bez DPH'}updateDeliveryAddButton();pzSyncZoneFocus();pzScheduleLabels();for(const marker of [pzOriginMarker,deliveryMarker])if(marker?.isPopupOpen())marker.getPopup().setContent(pzPointPopup(marker))}
-function setupDeliveryType(){const type=$('pz-delivery-type'),rate=$('pz-delivery-rate'),disc=$('pz-delivery-discount');type.addEventListener('change',()=>pzSetZonePrice(true));rate.addEventListener('input',()=>{updateDeliveryLivePreview();if(typeof pzQueueAutosave==='function')pzQueueAutosave()});disc.addEventListener('input',updateDeliveryLivePreview);pzNumericOnly(rate);pzNumericOnly(disc);updateDeliveryLivePreview()}
+function updateDeliveryLivePreview(){const q=pzCurrentQuote(),p=PZTransport.price($('pz-delivery-rate')?.value,pzDeliveryDiscount(),pzDeliveryMode());const ready=q?.available&&p;const set=(id,v)=>{if($(id))$(id).textContent=v};set('pz-delivery-live-km',pzDeliveryRoute?fmtNum(pzDeliveryRoute.km,3)+' km':'—');set('pz-delivery-live-rate',q?q.zone:'Vyberte adresu');set('pz-delivery-live-subtotal',ready?fmtMoney(p.original):'—');set('pz-delivery-live-discount',ready&&p.discount<0?'+'+fmtMoney(-p.discount):ready&&p.discount>0?'-'+fmtMoney(p.discount):'0 Kč');set('pz-delivery-live-adjust-label',pzDeliveryMode()==='surcharge'?'Přirážka':'Sleva');$('pz-delivery-live-adjust-row')?.classList.toggle('pz-surcharge-value',pzDeliveryMode()==='surcharge');$('pz-delivery-live-discount')?.classList.toggle('pz-surcharge-value',pzDeliveryMode()==='surcharge');set('pz-delivery-live-vat',ready?fmtMoney(p.vat):'—');set('pz-delivery-price',ready?fmtMoney(p.without):'—');set('pz-delivery-secondary',ready?'Cena před úpravou: '+fmtMoney(p.original)+' • Cena s DPH: '+fmtMoney(p.withVat):'');const warning=$('pz-delivery-zone-warning');if(warning){warning.textContent=q?.message||(!pzDeliveryRoute?'Vyberte konkrétní adresu z našeptávače.':'');warning.hidden=!warning.textContent}const manual=$('pz-delivery-manual-note');if(manual){manual.hidden=!(ready&&p.original!==q.base);manual.textContent='Individuální cena správce · ceníková cena zóny '+(q?.available?fmtMoney(q.base):'—')+' bez DPH'}updateDeliveryAddButton();pzSyncZoneFocus();pzScheduleLabels();for(const marker of [pzOriginMarker,deliveryMarker])if(marker?.isPopupOpen())marker.getPopup().setContent(pzPointPopup(marker))}
+function setupDeliveryType(){const type=$('pz-delivery-type'),rate=$('pz-delivery-rate'),disc=$('pz-delivery-discount');$('pz-delivery-adjust-toggle')?.addEventListener('click',()=>{state.deliveryAdjustmentMode=state.deliveryAdjustmentMode==='surcharge'?'discount':'surcharge';pzRefreshAdjustmentLabels();updateDeliveryLivePreview()});type.addEventListener('change',()=>pzSetZonePrice(true));rate.addEventListener('input',()=>{updateDeliveryLivePreview();if(typeof pzQueueAutosave==='function')pzQueueAutosave()});disc.addEventListener('input',updateDeliveryLivePreview);pzNumericOnly(rate);pzNumericOnly(disc);updateDeliveryLivePreview()}
 function pzRestoreDelivery(item){++pzRouteRequest;pzRouteAbort?.abort();if(!item){pzClearRouteDrawing();try{const r=JSON.parse($('pz-delivery-route-meta').value||'null');pzDeliveryRoute=r&&Number.isFinite(r.km)&&Array.isArray(r.coords)&&r.coords.every(Number.isFinite)&&r.addressKey===pzAddressKey()?r:null}catch{pzDeliveryRoute=null}selectedDeliveryCoords=pzDeliveryRoute?.coords||null;updateDeliveryLivePreview();pzDrawDeliveryRoute();return}
- $('pz-delivery-street').value=item.street||'';$('pz-delivery-city').value=item.city||'';$('pz-delivery-postcode').value=item.postcode||'';$('pz-delivery-type').value=item.deliveryType||'';$('pz-delivery-discount').value=String(item.discountPct||0);$('pz-delivery-rate').value=String(item.originalWithoutVat??item.priceWithoutVat??0);$('pz-delivery-km').value=String(item.km||0);pzDeliveryRoute=item.pricingMethod==='zone-v1'?{km:item.km,coords:item.coords,label:[item.street,item.city,item.postcode].filter(Boolean).join(', '),geometry:item.routeGeometry,addressKey:pzAddressKey()}:null;selectedDeliveryCoords=pzDeliveryRoute?.coords||null;pzStoreRoute();pzClearRouteDrawing();pzDrawDeliveryRoute();updateDeliveryLivePreview();if(!pzDeliveryRoute)$('pz-delivery-status').textContent='Původní uložená cena je zachována. Pro změnu dopravy vyberte adresu znovu.'}
-function pzMakeDeliveryItem(){const q=pzCurrentQuote(),p=PZTransport.price($('pz-delivery-rate').value,pzDeliveryDiscount());if(!pzDeliveryReady())return null;return {id:'delivery',type:'delivery',street:$('pz-delivery-street').value.trim(),city:$('pz-delivery-city').value.trim(),postcode:$('pz-delivery-postcode').value.trim(),deliveryType:$('pz-delivery-type').value,km:pzDeliveryRoute.km,rate:null,pricingMethod:'zone-v1',zoneName:q.zone,zoneBasePrice:q.base,agreement:q.agreement,manualPrice:p.original!==q.base,coords:pzDeliveryRoute.coords,routeGeometry:pzDeliveryRoute.geometry,priceWithoutVat:p.without,originalWithoutVat:p.original,discountPct:Math.max(0,Math.min(100,Number($('pz-delivery-discount').value)||0))}}
+ $('pz-delivery-street').value=item.street||'';$('pz-delivery-city').value=item.city||'';$('pz-delivery-postcode').value=item.postcode||'';$('pz-delivery-type').value=item.deliveryType||'';$('pz-delivery-discount').value=String(item.discountPct||0);state.deliveryAdjustmentMode=item.adjustmentMode||'discount';pzRefreshAdjustmentLabels();$('pz-delivery-rate').value=String(item.originalWithoutVat??item.priceWithoutVat??0);$('pz-delivery-km').value=String(item.km||0);pzDeliveryRoute=item.pricingMethod==='zone-v1'?{km:item.km,coords:item.coords,label:[item.street,item.city,item.postcode].filter(Boolean).join(', '),geometry:item.routeGeometry,addressKey:pzAddressKey()}:null;selectedDeliveryCoords=pzDeliveryRoute?.coords||null;pzStoreRoute();pzClearRouteDrawing();pzDrawDeliveryRoute();updateDeliveryLivePreview();if(!pzDeliveryRoute)$('pz-delivery-status').textContent='Původní uložená cena je zachována. Pro změnu dopravy vyberte adresu znovu.'}
+function pzMakeDeliveryItem(){const q=pzCurrentQuote(),p=PZTransport.price($('pz-delivery-rate').value,pzDeliveryDiscount(),pzDeliveryMode());if(!pzDeliveryReady())return null;return {id:'delivery',type:'delivery',street:$('pz-delivery-street').value.trim(),city:$('pz-delivery-city').value.trim(),postcode:$('pz-delivery-postcode').value.trim(),deliveryType:$('pz-delivery-type').value,km:pzDeliveryRoute.km,rate:null,pricingMethod:'zone-v1',zoneName:q.zone,zoneBasePrice:q.base,agreement:q.agreement,manualPrice:p.original!==q.base,coords:pzDeliveryRoute.coords,routeGeometry:pzDeliveryRoute.geometry,priceWithoutVat:p.without,originalWithoutVat:p.original,discountPct:Math.max(0,Math.min(100,Number($('pz-delivery-discount').value)||0)),adjustmentMode:state.deliveryAdjustmentMode}}
     function setupDeliveryChoice(){
   const section = $("pz-delivery-section");
   const body = $("pz-delivery-body");
@@ -5852,9 +5878,19 @@ if(deliveryCollapsed) deliveryCollapsed.style.display = "flex";
       fields.forEach((f,i)=>{f.addEventListener("blur",()=>markField(f));f.addEventListener("input",()=>{const wrap=f.closest(".pz-field");if(wrap?.classList.contains("pz-contact-valid"))markField(f);});f.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();markField(f);const next=fields[i+1];if(next){next.focus();if(next.select)setTimeout(()=>next.select(),0);}}else if(e.key==="Backspace"&&f.value===""&&i>0){e.preventDefault();fields[i-1].focus();if(fields[i-1].select)setTimeout(()=>fields[i-1].select(),0);}});});
       save?.addEventListener("click",()=>{fields.forEach(markField);closeContact();if(status){status.textContent="✓ Údaje uloženy";status.classList.add("saved");}showToast("Kontaktní údaje byly uloženy.");});
     }
+    function pzRefreshAdjustmentLabels(){
+      const pairs=[["pz-global-adjust-label","Globální ",state.globalAdjustmentMode],["pz-delivery-adjust-label","",state.deliveryAdjustmentMode]];
+      pairs.forEach(([id,prefix,mode])=>{const el=$(id);if(el)el.textContent=prefix+(mode==="surcharge"?"přirážka":"sleva")+(id.includes("delivery")?" na dopravu":"")});
+      const apply=$("pz-apply-global-discount"),remove=$("pz-remove-global-discount");
+      if(apply)apply.textContent="Použít "+(state.globalAdjustmentMode==="surcharge"?"přirážku":"slevu");
+      if(remove)remove.textContent="Odebrat "+(state.globalAdjustmentMode==="surcharge"?"přirážku":"slevu");
+      [["pz-global-adjust-field",state.globalAdjustmentMode],["pz-delivery-adjust-field",state.deliveryAdjustmentMode]].forEach(([id,mode])=>$(id)?.classList.toggle("pz-surcharge-field",mode==="surcharge"));
+    }
     function setupGlobalDiscount(){
       const input=$("pz-global-discount"),apply=$("pz-apply-global-discount"),remove=$("pz-remove-global-discount");
       if(!input)return;
+      $("pz-global-adjust-toggle")?.addEventListener("click",()=>{state.globalAdjustmentMode=state.globalAdjustmentMode==="surcharge"?"discount":"surcharge";pzRefreshAdjustmentLabels();renderCart();});
+      pzRefreshAdjustmentLabels();
       input.value=state.globalDiscount>0?state.globalDiscount:"";
       pzNumericOnly(input);
       /* Hodnota v poli je pouze návrh. Do kalkulace se propíše až po potvrzení tlačítkem Použít slevu. */
@@ -5873,8 +5909,8 @@ if(deliveryCollapsed) deliveryCollapsed.style.display = "flex";
     function getContactData(){const pp=$("pz-contact-phone-prefix")?.value.trim()||"",pn=$("pz-contact-phone")?.value.trim()||"",dp=$("pz-contact-dic-prefix")?.value.trim()||"",dn=$("pz-contact-dic")?.value.trim()||"";const wordPhone=(pp==="+420"||pp==="420")?pn:[pp,pn].filter(Boolean).join(" ");return {name:$("pz-contact-name")?.value.trim()||"",phone:wordPhone,address:$("pz-contact-address")?.value.trim()||"",company:$("pz-contact-company")?.value.trim()||"",ico:$("pz-contact-ico")?.value.trim()||"",dic:dn?(dp+dn).trim():"",email:$("pz-contact-email")?.value.trim()||""};}
     function nextPcNumber(){const key="pzSellerPcCounter";let n=parseInt(localStorage.getItem(key)||"178",10);if(!Number.isFinite(n)||n<1)n=178;n+=1;localStorage.setItem(key,String(n));return n;}
     function wordItemLines(item){
-      if(item.type==="delivery"){const p=effectivePricing(item);return [{t:`Doprava – ${item.street}, ${item.postcode} ${item.city}`,b:true},{t:`Celkem: ${PZTransport.itemDescription(item)}    ${fmtNum(Number(item.km||0),1)} km    ${fmtNum(p.without,0)} Kč`},{t:p.discount>0?`Původní cena: ${fmtNum(p.original,0)} Kč    Sleva: -${fmtNum(p.pct,0)} % / -${fmtNum(p.discount,0)} Kč`:""}].filter(x=>x.t);}
-      const c=item.calc,p=effectivePricing(item),lines=[{t:titleFor(item),b:true},{t:descFor(c)}];(c.serviceRows||[]).forEach(r=>lines.push({t:r.label}));lines.push({t:`Celkem: (${fmtNum(c.unitPrice,0)} Kč/${c.prod.priceMode==="m"?"bm":c.prod.priceMode==="piece"?"ks":"m³"})    ${c.met.volume>0?fmtNum(c.met.volume,3)+" m³":c.met.bm>0?fmtNum(c.met.bm,1)+" bm":fmtNum(c.met.count,0)+" ks"}    ${fmtNum(p.without,0)} Kč`});if(p.discount>0)lines.push({t:`Původní cena: ${fmtNum(p.original,0)} Kč    Sleva: -${fmtNum(p.pct,0)} % / -${fmtNum(p.discount,0)} Kč`});return lines;
+      if(item.type==="delivery"){const p=effectivePricing(item);return [{t:`Doprava – ${item.street}, ${item.postcode} ${item.city}`,b:true},{t:`Celkem: ${PZTransport.itemDescription(item)}    ${fmtNum(Number(item.km||0),1)} km    ${fmtNum(p.without,0)} Kč`},{t:p.discount!==0?`Původní cena: ${fmtNum(p.original,0)} Kč    ${p.discount<0?"Přirážka":"Sleva"}: ${p.discount<0?"+":"-"}${fmtNum(p.pct,0)} % / ${p.discount<0?"+":"-"}${fmtNum(Math.abs(p.discount),0)} Kč`:""}].filter(x=>x.t);}
+      const c=item.calc,p=effectivePricing(item),lines=[{t:titleFor(item),b:true},{t:descFor(c)}];(c.serviceRows||[]).forEach(r=>lines.push({t:r.label}));if(String(item.note||"").trim())lines.push({t:`Poznámka: ${String(item.note).trim()}`});const legacyUnitPrice=(c.prod.priceMode!=="m"&&c.prod.priceMode!=="piece")?Number(c.totalPricePerM3||c.unitPrice||0):Number(c.unitPrice||0);lines.push({t:`Celkem: (${fmtNum(legacyUnitPrice,0)} Kč/${c.prod.priceMode==="m"?"bm":c.prod.priceMode==="piece"?"ks":"m³"})    ${c.met.volume>0?fmtNum(c.met.volume,3)+" m³":c.met.bm>0?fmtNum(c.met.bm,1)+" bm":fmtNum(c.met.count,0)+" ks"}    ${fmtNum(p.without,0)} Kč`});if(p.discount>0)lines.push({t:`Původní cena: ${fmtNum(p.original,0)} Kč    Sleva: -${fmtNum(p.pct,0)} % / -${fmtNum(p.discount,0)} Kč`});return lines;
     }
     function pzLoadExternalScript(src){
       return new Promise((resolve,reject)=>{
@@ -5935,28 +5971,28 @@ if(deliveryCollapsed) deliveryCollapsed.style.display = "flex";
     function pzWordVerticalCenter(anchor){if(!anchor)return;const A="http://schemas.openxmlformats.org/drawingml/2006/main";const body=anchor.getElementsByTagNameNS(A,"bodyPr")[0];if(body)body.setAttribute("anchor","ctr");}
     function pzWordPrice(item){
       const c=item.calc||{},original=item.type==="delivery"?Number(item.originalWithoutVat??item.priceWithoutVat??0):Number(c.originalWithoutVat??c.withoutVat??0);
-      const pct=Math.max(0,Math.min(100,Number(item.type==="delivery"?item.discountPct:(item.discountPct??c.discountPct))||0));
-      return{original,pct,discount:original*pct/100,after:original*(1-pct/100)};
+      const p=effectivePricing(item);return {original:p.original,pct:p.pct,mode:p.mode,discount:p.discount,after:p.without};
     }
     function pzWordRows(item){
       const p=pzWordPrice(item);
       if(item.type==="delivery"){
         const names={car:"Doprava autem","small-trailer":"Doprava traktorem + malý vlek","small-trailer-unloading":"Doprava traktorem + malý vlek se skládáním","large-trailer":"Doprava traktorem + velký vlek","large-trailer-unloading":"Doprava traktorem + velký vlek se skládáním"};
         const out=[{text:names[item.deliveryType]||"Doprava",after:70},{text:`Celkem:     ${PZTransport.itemDescription(item)}     ${pzWordCompactNum(Number(item.km||0),2)} km     ${fmtNum(p.after,0)},-`,bold:true}];
-        if(p.pct){out.push({text:`Původní cena: ${fmtNum(p.original,0)},-`},{text:`Sleva: -${pzWordCompactNum(p.pct,2)} %     -${fmtNum(p.discount,0)},-`,bold:true,color:"C62828"});}return out;
+        if(p.pct){out.push({text:`Původní cena: ${fmtNum(p.original,0)},-`},{text:`${p.mode==="surcharge"?"Přirážka":"Sleva"}: ${p.mode==="surcharge"?"+":"-"}${pzWordCompactNum(p.pct,2)} %     ${p.mode==="surcharge"?"+":"-"}${fmtNum(Math.abs(p.discount),0)},-`,bold:true,color:p.mode==="surcharge"?"1766BC":"C62828"});}return out;
       }
       const c=item.calc||{},out=[{text:titleFor(item),after:25}],d=descFor(c);if(d)out.push({text:d});(c.serviceRows||[]).forEach(x=>out.push({text:x.label}));
       const unit=c.prod?.priceMode==="m"?"bm":c.prod?.priceMode==="piece"?"ks":"m³",qty=c.met?.volume>0?fmtNum(c.met.volume,3)+" m³":c.met?.bm>0?fmtNum(c.met.bm,1)+" bm":c.met?.count>0?fmtNum(c.met.count,0)+" ks":"";
-      out.push({text:`Celkem:     (${fmtNum(c.unitPrice,0)} Kč/${unit})     ${qty}     ${fmtNum(p.after,0)},-`,bold:true});
-      if(p.pct){out.push({text:`Původní cena: ${fmtNum(p.original,0)},-`},{text:`Sleva: -${fmtNum(p.pct,0)} %     -${fmtNum(p.discount,0)},-`});}return out;
+      if(String(item.note||"").trim())out.push({text:`Poznámka: ${String(item.note).trim()}`,size:20,after:80});
+      const legacyWordUnitPrice=unit==="m³"?Number(c.totalPricePerM3||c.unitPrice||0):Number(c.unitPrice||0);
+      out.push({text:`Celkem:     (${fmtNum(legacyWordUnitPrice,0)} Kč/${unit})     ${qty}     ${fmtNum(p.after,0)},-`,bold:true});
+      if(p.pct){out.push({text:`Původní cena: ${fmtNum(p.original,0)},-`},{text:`${p.mode==="surcharge"?"Přirážka":"Sleva"}: ${p.mode==="surcharge"?"+":"-"}${fmtNum(p.pct,0)} %     ${p.mode==="surcharge"?"+":"-"}${fmtNum(Math.abs(p.discount),0)},-`});}return out;
     }
     function pzWordServiceKey(item){return (item.calc?.serviceRows||[]).map(x=>`${x.key||x.label}:${x.label}:${Number(x.unitPrice||0)}`).sort().join("|");}
     function pzWordUnit(item){const m=item.calc?.prod?.priceMode;return m==="m"?"m":m==="piece"?"ks":"m³";}
     function pzWordQty(items){
       const mode=items[0]?.calc?.prod?.priceMode;
       if(mode==="m")return `${pzWordCompactNum(items.reduce((n,x)=>n+Number(x.calc?.met?.bm||0),0),2)} bm`;
-      if(mode==="piece")return `${fmtNum(items.reduce((n,x)=>n+Number(x.calc?.met?.count||0),0),0)} ks`;
-      return `${fmtNum(items.reduce((n,x)=>n+Number(x.calc?.met?.volume||0),0),3)} m³`;
+      if(mode==="piece")return `${fmtNum(items.reduce((n,x)=>n+Number(x.calc?.met?.count||0),0),0)} ks`;      return `${fmtNum(items.reduce((n,x)=>n+Number(x.calc?.met?.volume||0),0),3)} m³`;
     }
     function pzWordCompactNum(value,maxDigits=2){
       const n=Number(value||0);
@@ -5965,6 +6001,7 @@ if(deliveryCollapsed) deliveryCollapsed.style.display = "flex";
     function pzWordProfileKey(item){
       const c=item.calc||{},v=c.vals||{},p=c.prod||{};
       if(p.priceMode==="piece")return `piece:${v.scrapType||""}`;
+      if(String(v.width)==="20plus")return `total20plus:${Number(v.height||p.fixed?.height||0)}:${Number(v.widthTotal||0)}`;
       if(v.widthType==="total"||p.priceMode==="m3_area")return `total:${Number(v.height||p.fixed?.height||0)}`;
       return `profile:${Number(v.height||p.fixed?.height||0)}:${Number(v.width||p.fixed?.width||0)}`;
     }
@@ -5972,6 +6009,7 @@ if(deliveryCollapsed) deliveryCollapsed.style.display = "flex";
       const c=item.calc||{},v=c.vals||{},p=c.prod||{},h=Number(v.height||p.fixed?.height||0),w=Number(v.width||p.fixed?.width||0);
       if(p.priceMode==="piece")return v.scrapType==="katr"?"Katr":"Zejt";
       if(item.product==="lat_3_5"||item.product==="lat_2")return "6x4";
+      if(item.product==="prkna_stejna"&&String(v.width)==="20plus")return `20+ cmš / celk. ${pzWordCompactNum(v.widthTotal,2)} m`;
       if(item.product==="prkna_stejna")return `${pzWordCompactNum(w,2)} cmš`;
       return `${pzWordCompactNum(h,2)}x${pzWordCompactNum(w,2)}`;
     }
@@ -5998,7 +6036,7 @@ if(deliveryCollapsed) deliveryCollapsed.style.display = "flex";
       wood.forEach(item=>{
         const c=item.calc||{},p=pzWordPrice(item);
         /* Druh sortimentu je součástí klíče: Trámy, Fošny, Prkna atd. se nikdy nesloučí. */
-        const key=[item.material,item.product,Number(c.unitPrice||0),pzWordServiceKey(item),p.pct].join("§");
+        const key=[item.material,item.product,Number(c.unitPrice||0),pzWordServiceKey(item),p.pct,String(item.note||"").trim()].join("§");
         if(!blocks.has(key))blocks.set(key,[]);blocks.get(key).push(item);
       });
       for(const items of blocks.values()){
@@ -6039,12 +6077,16 @@ if(deliveryCollapsed) deliveryCollapsed.style.display = "flex";
         }
 
         (c0.serviceRows||[]).forEach(x=>rows.push({text:x.label,after:70}));
+        const itemNote=String(first.note||"").trim();
+        if(itemNote)rows.push({text:`Poznámka: ${itemNote}`,size:20,after:80});
         const original=items.reduce((n,x)=>n+pzWordPrice(x).original,0),after=items.reduce((n,x)=>n+pzWordPrice(x).after,0),discount=original-after;
-        if(discount>0){
-          rows.push({text:`Cena před slevou: ${fmtNum(original,0)},-`});
-          rows.push({text:`Sleva: -${pzWordCompactNum(p0.pct,2)} %     -${fmtNum(discount,0)},-`,color:"C62828",bold:true});
+        if(discount!==0){
+          rows.push({text:`Cena před úpravou: ${fmtNum(original,0)},-`});
+          rows.push({text:`${discount<0?"Přirážka":"Sleva"}: ${discount<0?"+":"-"}${pzWordCompactNum(p0.pct,2)} %     ${discount<0?"+":"-"}${fmtNum(Math.abs(discount),0)},-`,color:discount<0?"1766BC":"C62828",bold:true});
         }
-        rows.push({text:`Celkem:     (${fmtNum(Number(c0.unitPrice||0),0)} Kč/${pzWordUnit(first)})     ${pzWordQty(items)}     ${fmtNum(after,0)},-`,bold:true,after:40});
+        const wordUnit=pzWordUnit(first);
+        const wordUnitPrice=wordUnit==="m³"?Number(c0.totalPricePerM3||c0.unitPrice||0):Number(c0.unitPrice||0);
+        rows.push({text:`Celkem:     (${fmtNum(wordUnitPrice,0)} Kč/${wordUnit})     ${pzWordQty(items)}     ${fmtNum(after,0)},-`,bold:true,after:40});
         rows.push({text:" ",line:160,after:150});
       }
       deliveries.forEach(it=>{rows.push(...pzWordRows(it));rows.push({text:" ",line:160,after:150});});
@@ -6072,17 +6114,20 @@ if(deliveryCollapsed) deliveryCollapsed.style.display = "flex";
         pzWordWrite(nameA,[{text:fullName}],nameSize);pzWordWrite(phoneA,[{text:c.phone||" "}],32);
         pzWordWrite(pzWordAnchor(a,"left",1430000,1460000),[{text:c.address||" "}],20);pzWordWrite(pzWordAnchor(a,"2343150",1490000,1520000),[{text:c.company||" "}],20);
         pzWordWrite(pzWordAnchor(a,"left",2180000,2210000),[{text:c.ico||" "}],20);pzWordWrite(pzWordAnchor(a,"center",2160000,2190000),[{text:c.dic||" "}],20);
-        pzWordWrite(pzWordAnchor(a,"right",2230000,2260000),[{text:c.email||" "}],18);pzWordWrite(pzWordAnchor(a,"4168589",0,40000),[{text:`KG/${pc}`}],32);
+        const emailA=pzWordAnchor(a,"right",2230000,2260000),emailText=(c.email||" ").replace(/\s+/g," ").trim()||" ",emailLen=[...emailText].length;
+        const emailSize=emailLen<=28?18:emailLen<=34?16:emailLen<=42?14:emailLen<=52?12:10;
+        if(emailA){const A="http://schemas.openxmlformats.org/drawingml/2006/main",body=emailA.getElementsByTagNameNS(A,"bodyPr")[0];if(body){body.setAttribute("wrap","none");body.setAttribute("lIns","20000");body.setAttribute("rIns","20000");}}
+        pzWordWrite(emailA,[{text:emailText}],emailSize);pzWordWrite(pzWordAnchor(a,"4168589",0,40000),[{text:`KG/${pc}`}],32);
         const rows=pzWordGroupedRows();
         if(state.globalDiscount>0){
           const globalPct=Math.max(0,Math.min(100,Number(state.globalDiscount)||0));
           const globalBase=state.cart.reduce((sum,it)=>{const own=pzWordPrice(it);return sum+(own.pct>0?0:own.original);},0);
-          const globalDiscount=globalBase*globalPct/100;
+          const globalDiscount=globalBase*globalPct/100*(state.globalAdjustmentMode==="surcharge"?-1:1);
           const subtotalBeforeGlobal=tot.without+globalDiscount;
           const subtotalText=`Mezi součet ${fmtNum(subtotalBeforeGlobal,0)},-`;
-          const discountText=`Sleva -${pzWordCompactNum(globalPct,2)} %     -${fmtNum(globalDiscount,0)},-`;
+          const discountText=`${globalDiscount<0?"Přirážka +":"Sleva -"}${pzWordCompactNum(globalPct,2)} %     ${globalDiscount<0?"+":"-"}${fmtNum(Math.abs(globalDiscount),0)},-`;
           const alignedWidth=Math.max(subtotalText.length,discountText.length);
-          rows.push({text:" ",line:120},{text:subtotalText.padEnd(alignedWidth," "),align:"right",bold:true},{text:discountText.padEnd(alignedWidth," "),align:"right",color:"C62828",bold:true});
+          rows.push({text:" ",line:120},{text:subtotalText.padEnd(alignedWidth," "),align:"right",bold:true},{text:discountText.padEnd(alignedWidth," "),align:"right",color:discount<0?"1766BC":"C62828",bold:true});
         }
         const wordRowCount=rows.reduce((n,r)=>n+Math.max(1,Math.ceil(String(r?.text||"").length/68)),0);
         let wordOrderFont=24;
@@ -6178,6 +6223,11 @@ if(deliveryCollapsed) deliveryCollapsed.style.display = "flex";
       renderCart();
     }
     $("pz-add-btn").onclick = addOrUpdate;
+    const pzItemNoteEl=$("pz-item-note");
+    if(pzItemNoteEl){
+      pzItemNoteEl.value=state.itemNote||"";
+      pzItemNoteEl.addEventListener("input",()=>{state.itemNote=pzItemNoteEl.value;});
+    }
     $("pz-cancel-edit").onclick = ()=>{
       if(state.editingBackup){
         const b = state.editingBackup;
@@ -6258,15 +6308,16 @@ requestAnimationFrame(() => {
     let pzDirty=false;
     let pzOpenedRecord=null;
     let pzSuppressAutosave=false;
+    let pzDeliveryTouched=false;
+    let pzArchiveBusy=false;
     const pzDeep=v=>JSON.parse(JSON.stringify(v));
     function pzRecords(){try{const x=JSON.parse(localStorage.getItem(PZ_RECORDS_KEY)||"[]");return Array.isArray(x)?x:[]}catch(_){return []}}
  function pzWriteRecords(rows){
-  localStorage.setItem(PZ_RECORDS_KEY, JSON.stringify(rows));
+  const before=pzRecords();
+  const beforeById=new Map(before.map(r=>[r.id,JSON.stringify(r)]));
+  localStorage.setItem(PZ_RECORDS_KEY,JSON.stringify(rows));
   pzUpdateCounts();
-
-  rows.forEach(record => {
-    pzCloudSaveRecord(record);
-  });
+  rows.forEach(record=>{if(beforeById.get(record.id)!==JSON.stringify(record))pzCloudSaveRecord(record)});
  }
 window.pzGetLocalRecords = function() {
   return pzRecords();
@@ -6275,81 +6326,75 @@ window.pzSetLocalRecords = function(rows) {
   localStorage.setItem(PZ_RECORDS_KEY, JSON.stringify(rows));
   pzUpdateCounts();
 };
+window.pzSetSyncStatus=function(status){const b=document.getElementById("pz-sync-now"),t=document.getElementById("pz-sync-status-text");if(!b)return;b.classList.remove("is-syncing","is-error","is-offline");if(status==="syncing")b.classList.add("is-syncing");if(status==="error")b.classList.add("is-error");if(status==="offline")b.classList.add("is-offline");const label=status==="syncing"?"Synchronizuji…":status==="offline"?"Offline":status==="error"?"Synchronizace se nezdařila":"✓ Synchronizováno";b.title=label;if(t){t.textContent=label;t.className="pz-sync-status-text show"+(status==="error"?" is-error":status==="offline"?" is-offline":"");clearTimeout(window.pzSyncStatusTimer);if(status==="ok")window.pzSyncStatusTimer=setTimeout(()=>t.classList.remove("show"),2600);}};
     function pzId(){return "calc_"+Date.now().toString(36)+Math.random().toString(36).slice(2,8)}
     function pzInputsSnapshot(){const out={};document.querySelectorAll('#pz-app input[id],#pz-app select[id],#pz-app textarea[id]').forEach(el=>{if(el.id.startsWith('pz-library-'))return;out[el.id]=el.type==='checkbox'?el.checked:el.value});return out}
-    function pzHasWork(){const c=getContactData();return pzDirty||state.cart.length>0||Object.values(c).some(Boolean)||Number(state.globalDiscount)>0}
-    function pzSnapshot(){return {version:2,state:{material:state.material,product:state.product,values:pzDeep(state.values),services:pzDeep(state.services),cart:pzDeep(getStableCartForStorage()),selectedAddress:state.selectedAddress||'',manualUnitPrice:state.manualUnitPrice,priceOverridden:!!state.priceOverridden,itemDiscount:Number(state.itemDiscount)||0,globalDiscount:Number(state.globalDiscount)||0},inputs:pzInputsSnapshot()}}
+    function pzHasDeliveryContent(){
+      const ids=["pz-delivery-street","pz-delivery-city","pz-delivery-postcode","pz-delivery-km","pz-delivery-price","pz-delivery-manual-note"];
+      if(ids.some(id=>String($(id)?.value||"").trim()!==""))return true;
+      return !!state.cart.some(i=>i.type==="delivery");
+    }
+    function pzHasWork(){const c=getContactData();return state.cart.length>0||Object.values(c).some(Boolean)||pzHasDeliveryContent()}
+    function pzNextKgNumber(rows){const nums=(rows||[]).map(r=>String(r.kgNumber||"").match(/^KG\/(\d+)$/i)).filter(Boolean).map(m=>Number(m[1])).filter(Number.isFinite);const n=(nums.length?Math.max(...nums):0)+1;return `KG/${String(n).padStart(3,"0")}`}
+    function pzRemoveEmptyActiveDraft(){if(!pzActiveDraftId)return false;const rows=pzRecords(),i=rows.findIndex(r=>r.id===pzActiveDraftId);if(i<0||rows[i].type!=="draft")return false;const id=pzActiveDraftId,now=Date.now(),tomb={id,type:PZ_TOMBSTONE_TYPE,updatedAt:now,deletedAt:now};rows.splice(i,1);localStorage.setItem(PZ_RECORDS_KEY,JSON.stringify(rows));const ts=pzLocalTombstones().filter(r=>r.id!==id);ts.unshift(tomb);pzSetLocalTombstones(ts);pzUpdateCounts();pzCloudSaveRecord(tomb);pzActiveDraftId=null;pzOpenedRecord=null;pzDirty=false;pzUpdateLoadedBar();window.pzRenderLibrary?.();return true}
+    function pzSnapshot(){return {version:2,state:{material:state.material,product:state.product,values:pzDeep(state.values),services:pzDeep(state.services),cart:pzDeep(getStableCartForStorage()),selectedAddress:state.selectedAddress||'',manualUnitPrice:state.manualUnitPrice,priceOverridden:!!state.priceOverridden,itemDiscount:Number(state.itemDiscount)||0,itemAdjustmentMode:state.itemAdjustmentMode,globalAdjustmentMode:state.globalAdjustmentMode,deliveryAdjustmentMode:state.deliveryAdjustmentMode,globalDiscount:Number(state.globalDiscount)||0,deliveryTouched:!!pzDeliveryTouched},inputs:pzInputsSnapshot()}}
     function pzMeta(){const c=getContactData(),t=totals();return {customer:c.name||c.company||'Bez názvu',phone:c.phone||'',address:c.address||'',company:c.company||'',email:c.email||'',total:Number(t.with)||0,itemCount:state.cart.filter(i=>i.type!=='delivery').length}}
     function pzSnapshotKey(s){try{return JSON.stringify(s||{})}catch(_){return ''}}
     function pzOpenedHasChanges(){return !!pzOpenedRecord&&pzSnapshotKey(pzSnapshot())!==pzSnapshotKey(pzOpenedRecord.original?.snapshot)}
-    function pzSaveActiveDraft(){if(pzSuppressAutosave||!pzHasWork())return;if(pzOpenedRecord?.type==='archive'&&!pzOpenedHasChanges())return;const now=Date.now(),rows=pzRecords();if(!pzActiveDraftId)pzActiveDraftId=pzId();const rec={id:pzActiveDraftId,type:'draft',createdAt:now,updatedAt:now,...pzMeta(),snapshot:pzSnapshot()};const i=rows.findIndex(r=>r.id===pzActiveDraftId);if(i>=0){rec.createdAt=rows[i].createdAt||now;rows[i]=rec}else rows.unshift(rec);pzWriteRecords(rows)}
+    function pzSaveActiveDraft(){if(pzSuppressAutosave)return;if(!pzHasWork()){pzRemoveEmptyActiveDraft();return}if(pzOpenedRecord?.type==='archive'&&!pzOpenedHasChanges())return;const now=Date.now(),rows=pzRecords();if(!pzActiveDraftId)pzActiveDraftId=pzId();const existing=rows.find(r=>r.id===pzActiveDraftId);const keepArchive=pzOpenedRecord?.type==='archive'||existing?.type==='archive';const rec={id:pzActiveDraftId,type:keepArchive?'archive':'draft',createdAt:existing?.createdAt||now,updatedAt:now,...(keepArchive?{archivedAt:existing?.archivedAt||pzOpenedRecord?.original?.archivedAt||now}:{}),...pzMeta(),snapshot:pzSnapshot()};const i=rows.findIndex(r=>r.id===pzActiveDraftId);if(i>=0)rows[i]=rec;else rows.unshift(rec);pzWriteRecords(rows)}
     function pzQueueAutosave(){if(pzSuppressAutosave)return;clearTimeout(pzAutosaveTimer);pzAutosaveTimer=setTimeout(pzSaveActiveDraft,350)}
     function pzApplyInputs(inputs){pzSuppressAutosave=true;Object.entries(inputs||{}).forEach(([id,v])=>{const el=$(id);if(!el)return;if(el.type==='checkbox')el.checked=!!v;else el.value=v??'';el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}))});pzSuppressAutosave=false}
     function pzUpdateLoadedBar(){const bar=$('pz-loaded-bar');if(!bar)return;if(!pzOpenedRecord){bar.classList.remove('open');return}bar.classList.add('open');$('pz-loaded-title').textContent=pzOpenedRecord.type==='archive'?'Otevřeno z Archivu':'Otevřený koncept';$('pz-loaded-sub').textContent=pzOpenedRecord.customer||'Bez názvu'}
-    function pzOpenRecord(id){const rec=pzRecords().find(r=>r.id===id);if(!rec||!rec.snapshot||rec.type==='trash')return;const snap=rec.snapshot,ss=snap.state||{};pzSuppressAutosave=true;pzInvalidateDelivery();state.material=ss.material&&CONFIG.materials[ss.material]?ss.material:'smrk';state.product=ss.product&&CONFIG.materials[state.material]?.products[ss.product]?ss.product:'tramy';state.values=pzDeep(ss.values||{});state.services=pzDeep(ss.services||{});state.cart=pzDeep(ss.cart||[]);state.selectedAddress=ss.selectedAddress||'';state.manualUnitPrice=ss.manualUnitPrice??null;state.priceOverridden=!!ss.priceOverridden;state.itemDiscount=Number(ss.itemDiscount)||0;state.globalDiscount=Number(ss.globalDiscount)||0;state.editingId=null;state.editingBackup=null;state.deliveryEditingBackup=null;pzActiveDraftId=rec.type==='draft'?rec.id:pzId();pzOpenedRecord={id:rec.id,type:rec.type,customer:rec.customer||'Bez názvu',original:pzDeep(rec)};pzDirty=false;renderAll();pzApplyInputs(snap.inputs||{});restoreStoredDeliveryUi();setupGlobalDiscount();if(pzOpenedRecord)pzOpenedRecord.original.snapshot=pzDeep(pzSnapshot());closeCart();pzCloseLibrary();pzSuppressAutosave=false;pzUpdateLoadedBar();window.scrollTo({top:0,behavior:'smooth'});showToast(rec.type==='archive'?'Načteno z archivu.':'Koncept načten.')}
-    function pzResetCalculation(){pzInvalidateDelivery();pzSuppressAutosave=true;clearTimeout(pzAutosaveTimer);state.material='smrk';state.product='tramy';state.values={};state.services={};state.cart=[];state.delivery=null;state.editingId=null;state.editingBackup=null;state.deliveryEditingBackup=null;state.selectedAddress='';state.manualUnitPrice=null;state.priceOverridden=false;state.itemDiscount=0;state.globalDiscount=0;pzActiveDraftId=null;pzDirty=false;pzOpenedRecord=null;document.querySelectorAll('.pz-contact-input').forEach(el=>{if(el.id==='pz-contact-phone-prefix')el.value='+420';else if(el.id==='pz-contact-dic-prefix')el.value='CZ';else el.value=''});document.querySelectorAll('.pz-contact-valid').forEach(el=>el.classList.remove('pz-contact-valid'));localStorage.removeItem(CALCULATION_STORAGE_KEY);localStorage.removeItem('pzDraft');state.values=defaultValues(productDef());renderAll();const status=$('pz-contact-status');if(status){status.textContent='Kliknutím vyplňte údaje';status.classList.remove('saved')}const sec=$('pz-contact-section');sec?.classList.remove('open');const gd=$('pz-global-discount');if(gd)gd.value='';const dc=$('pz-delivery-collapsed'),dh=document.querySelector('.pz-delivery-head'),db=$('pz-delivery-body');if(dc)dc.style.display='none';if(dh)dh.style.display='';if(db)db.style.display='none';closeCart();pzUpdateLoadedBar();pzSuppressAutosave=false}
- async function pzArchiveCurrent(){if(!pzHasWork()||state.cart.length===0){showToast('Nejdříve vytvořte kalkulaci.');return}const rows=pzRecords(),now=Date.now();const oldDraftId = pzActiveDraftId;const rec={id:pzId(),type:'archive',createdAt:now,updatedAt:now,archivedAt:now,...pzMeta(),snapshot:pzSnapshot()};const filtered=rows.filter(r=>r.id!==pzActiveDraftId);filtered.unshift(rec);pzWriteRecords(filtered);if (oldDraftId) {
-  await pzCloudDeleteRecord(oldDraftId);
- }pzResetCalculation();showToast('Uloženo do archivu.')}
+    function pzOpenRecord(id){if(typeof pzInvalidateDelivery==='function')pzInvalidateDelivery();const rec=pzRecords().find(r=>r.id===id);if(!rec||!rec.snapshot||rec.type==='trash')return;const snap=rec.snapshot,ss=snap.state||{};pzSuppressAutosave=true;state.material=ss.material&&CONFIG.materials[ss.material]?ss.material:'smrk';state.product=ss.product&&CONFIG.materials[state.material]?.products[ss.product]?ss.product:'tramy';state.values=pzDeep(ss.values||{});state.services=pzDeep(ss.services||{});state.cart=pzDeep(ss.cart||[]);state.selectedAddress=ss.selectedAddress||'';state.manualUnitPrice=ss.manualUnitPrice??null;state.priceOverridden=!!ss.priceOverridden;state.itemDiscount=Number(ss.itemDiscount)||0;state.globalDiscount=Number(ss.globalDiscount)||0;state.itemAdjustmentMode=ss.itemAdjustmentMode||"discount";state.globalAdjustmentMode=ss.globalAdjustmentMode||"discount";state.deliveryAdjustmentMode=ss.deliveryAdjustmentMode||"discount";pzDeliveryTouched=!!ss.deliveryTouched||!!(ss.cart||[]).some(i=>i.type==='delivery');state.editingId=null;state.editingBackup=null;state.deliveryEditingBackup=null;pzActiveDraftId=rec.id;pzOpenedRecord={id:rec.id,type:rec.type,customer:rec.customer||'Bez názvu',original:pzDeep(rec)};pzDirty=false;renderAll();pzApplyInputs(snap.inputs||{});restoreStoredDeliveryUi();setupGlobalDiscount();closeCart();pzCloseLibrary();pzSuppressAutosave=false;pzUpdateLoadedBar();window.scrollTo({top:0,behavior:'smooth'});showToast(rec.type==='archive'?'Načteno z archivu.':'Koncept načten.')}
+    function pzResetCalculation(){if(typeof pzInvalidateDelivery==='function')pzInvalidateDelivery();pzSuppressAutosave=true;clearTimeout(pzAutosaveTimer);state.material='smrk';state.product='tramy';state.values={};state.services={};state.cart=[];state.delivery=null;state.editingId=null;state.editingBackup=null;state.deliveryEditingBackup=null;state.selectedAddress='';state.manualUnitPrice=null;state.priceOverridden=false;state.itemDiscount=0;state.globalDiscount=0;state.itemAdjustmentMode="discount";state.globalAdjustmentMode="discount";state.deliveryAdjustmentMode="discount";pzDeliveryTouched=false;pzActiveDraftId=null;pzDirty=false;pzOpenedRecord=null;document.querySelectorAll('.pz-contact-input').forEach(el=>{if(el.id==='pz-contact-phone-prefix')el.value='+420';else if(el.id==='pz-contact-dic-prefix')el.value='CZ';else el.value=''});document.querySelectorAll('.pz-contact-valid').forEach(el=>el.classList.remove('pz-contact-valid'));localStorage.removeItem(CALCULATION_STORAGE_KEY);localStorage.removeItem('pzDraft');state.values=defaultValues(productDef());renderAll();const status=$('pz-contact-status');if(status){status.textContent='Kliknutím vyplňte údaje';status.classList.remove('saved')}const sec=$('pz-contact-section');sec?.classList.remove('open');const gd=$('pz-global-discount');if(gd)gd.value='';const dc=$('pz-delivery-collapsed'),dh=document.querySelector('.pz-delivery-head'),db=$('pz-delivery-body');if(dc)dc.style.display='none';if(dh)dh.style.display='';if(db)db.style.display='none';closeCart();pzUpdateLoadedBar();pzSuppressAutosave=false}
+ async function pzArchiveCurrent(){if(pzArchiveBusy)return;if(!pzHasWork()||state.cart.length===0){showToast('Nejdříve vytvořte kalkulaci.');return}const btn=$('pz-save-archive');pzArchiveBusy=true;if(btn){btn.disabled=true;btn.setAttribute('aria-busy','true')}try{const rows=pzRecords(),now=Date.now();const id=pzActiveDraftId||pzOpenedRecord?.id||pzId();const old=rows.find(r=>r.id===id);const kgNumber=old?.kgNumber||pzNextKgNumber(rows);const rec={...(old||{}),id,type:'archive',kgNumber,createdAt:old?.createdAt||now,updatedAt:now,archivedAt:old?.archivedAt||now,previousType:null,deletedAt:null,...pzMeta(),snapshot:pzSnapshot()};const filtered=rows.filter(r=>r.id!==id);filtered.unshift(rec);pzWriteRecords(filtered);pzResetCalculation();showToast(`Uloženo do archivu • ${kgNumber}`)}finally{setTimeout(()=>{pzArchiveBusy=false;if(btn){btn.disabled=false;btn.removeAttribute('aria-busy')}},700)}}
     function pzMoveTrash(id){const rows=pzRecords(),i=rows.findIndex(r=>r.id===id);if(i<0)return;rows[i]={...rows[i],previousType:rows[i].type,type:'trash',deletedAt:Date.now(),updatedAt:Date.now()};if(id===pzActiveDraftId)pzActiveDraftId=null;pzWriteRecords(rows);pzRenderLibrary()}
     function pzRestoreTrash(id){const rows=pzRecords(),i=rows.findIndex(r=>r.id===id);if(i<0)return;rows[i]={...rows[i],type:rows[i].previousType==='archive'?'archive':'draft',previousType:null,deletedAt:null,updatedAt:Date.now()};pzWriteRecords(rows);pzRenderLibrary()}
  async function pzDeleteForever(id) {
   if (!confirm('Opravdu chcete tuto kalkulaci trvale odstranit?')) return;
-
-  pzWriteRecords(
-    pzRecords().filter(r => r.id !== id)
-  );
-
-  await pzCloudDeleteRecord(id);
-
-  pzRenderLibrary();
+  const now=Date.now();const tomb={id,type:PZ_TOMBSTONE_TYPE,updatedAt:now,deletedAt:now};
+  localStorage.setItem(PZ_RECORDS_KEY,JSON.stringify(pzRecords().filter(r=>r.id!==id)));
+  const ts=pzLocalTombstones().filter(r=>r.id!==id);ts.unshift(tomb);pzSetLocalTombstones(ts);pzUpdateCounts();
+  await pzCloudSaveRecord(tomb);pzRenderLibrary();
 }
     function pzUpdateCounts(){const rows=pzRecords();[['pz-draft-count','draft'],['pz-archive-count','archive'],['pz-trash-count','trash']].forEach(([id,type])=>{const e=$(id);if(!e)return;const n=rows.filter(r=>r.type===type).length;e.textContent=String(n);e.classList.toggle('has-count',n>0)})}
     function pzEsc(v){return String(v??'').replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[c]))}
     function pzDate(ts){return ts?new Intl.DateTimeFormat('cs-CZ',{dateStyle:'medium',timeStyle:'short'}).format(new Date(ts)):'—'}
-    function pzRecordHtml(r){const when=pzDate(r.type==='archive'?r.archivedAt:r.type==='trash'?r.deletedAt:r.updatedAt);const label=r.type==='draft'?'Koncept':r.type==='archive'?'Archivováno':'V koši';return `<article class="pz-record" data-open-record="${r.id}"><div class="pz-record-main"><strong>${pzEsc(r.customer||'Bez názvu')}</strong><span>${when}</span><span class="pz-record-type">${label}</span></div><div class="pz-record-price"><strong>${fmtMoney(Number(r.total)||0)}</strong><span>s DPH</span></div><div class="pz-record-summary"><span>☎ <b>${pzEsc(r.phone||'Telefon neuveden')}</b></span><span>⌖ ${pzEsc(r.address||'Adresa neuvedena')}</span><span>▤ <b>${r.itemCount||0} položek</b></span></div><div class="pz-record-actions">${r.type==='trash'?`<button class="pz-mini-btn" data-restore="${r.id}" type="button">Obnovit</button><button class="pz-mini-btn danger" data-forever="${r.id}" type="button">Smazat trvale</button>`:`<button class="pz-mini-btn danger" data-trash="${r.id}" type="button">Přesunout do koše</button>`}</div></article>`}
+    function pzArchiveItemNotesHtml(r){
+      if(r?.type!=="archive") return "";
+      const items=(r.snapshot?.state?.cart||[]).filter(i=>i&&i.type!=="delivery"&&String(i.note||"").trim());
+      if(!items.length) return "";
+      return `<div class="pz-record-cell pz-archive-item-notes">${items.map((item,index)=>`<div><strong>${pzEsc(titleFor(item))}</strong><span><b>Poznámka:</b> ${pzEsc(String(item.note).trim())}</span></div>`).join("")}</div>`;
+    }
+    function pzRecordHtml(r){const when=pzDate(r.type==='archive'?r.archivedAt:r.type==='trash'?r.deletedAt:r.updatedAt);const label=r.type==='draft'?'Koncept':r.type==='archive'?'Archivováno':'V koši';const kg=r.kgNumber?`<span class="pz-record-type">${pzEsc(r.kgNumber)}</span>`:'';const itemNotes=pzArchiveItemNotesHtml(r);return `<article class="pz-record" data-open-record="${r.id}"><div class="pz-record-main"><strong>${pzEsc(r.customer||'Bez názvu')}</strong><span>${when}</span><span class="pz-record-type">${label}</span>${kg}</div><div class="pz-record-price"><strong>${fmtMoney(Number(r.total)||0)}</strong><span>s DPH</span></div><div class="pz-record-summary"><span>☎ <b>${pzEsc(r.phone||'Telefon neuveden')}</b></span><span>⌖ ${pzEsc(r.address||'Adresa neuvedena')}</span><span>▤ <b>${r.itemCount||0} položek</b></span></div>${itemNotes}<div class="pz-record-actions">${r.type==='trash'?`<button class="pz-mini-btn" data-restore="${r.id}" type="button">Obnovit</button><button class="pz-mini-btn danger" data-forever="${r.id}" type="button">Smazat trvale</button>`:`<button class="pz-mini-btn danger" data-trash="${r.id}" type="button">Přesunout do koše</button>`}</div></article>`}
     function pzLibraryTools(mode){if(mode==='settings'||mode==='drafts')return '';if(mode==='trash')return '<div class="pz-trash-toolbar"><button class="pz-mini-btn danger" id="pz-empty-trash" type="button">Vysypat koš</button></div>';return `<div class="pz-library-tools"><input class="pz-search-wide" id="pz-lib-search" type="search" placeholder="Hledat jméno, telefon, adresu, firmu nebo e-mail…"><input id="pz-lib-from" type="date" title="Datum od"><input id="pz-lib-to" type="date" title="Datum do"><select id="pz-lib-sort"><option value="new">Nejnovější</option><option value="old">Nejstarší</option><option value="az">Zákazník A–Z</option><option value="high">Cena nejvyšší</option><option value="low">Cena nejnižší</option></select></div>`}
-    function pzRenderLibrary(){const content=$('pz-library-content');if(!content)return;const titles={drafts:['Koncepty','Rozpracované kalkulace se ukládají automaticky.'],archive:['Archiv','Dokončené kalkulace bezpečně na jednom místě.'],trash:['Koš','Smazané kalkulace můžete obnovit nebo trvale odstranit.'],settings:['Nastavení','Nastavení aplikace.']};$('pz-library-title').textContent=titles[pzLibraryMode][0];$('pz-library-sub').textContent=titles[pzLibraryMode][1];if(pzLibraryMode==='settings'){pzRenderMapSettings(content);return}content.innerHTML=pzLibraryTools(pzLibraryMode)+'<div class="pz-library-list" id="pz-library-list"></div>';const refresh=()=>{let rows=pzRecords().filter(r=>r.type===(pzLibraryMode==='drafts'?'draft':pzLibraryMode));const q=($('pz-lib-search')?.value||'').trim().toLocaleLowerCase('cs');const f=$('pz-lib-from')?.value,t=$('pz-lib-to')?.value,sort=$('pz-lib-sort')?.value||'new';if(q)rows=rows.filter(r=>[r.customer,r.phone,r.address,r.company,r.email].some(v=>String(v||'').toLocaleLowerCase('cs').includes(q)));if(f)rows=rows.filter(r=>new Date(r.archivedAt||r.deletedAt||r.updatedAt||0)>=new Date(f+'T00:00:00'));if(t)rows=rows.filter(r=>new Date(r.archivedAt||r.deletedAt||r.updatedAt||0)<=new Date(t+'T23:59:59'));rows.sort((a,b)=>sort==='old'?(a.updatedAt||0)-(b.updatedAt||0):sort==='az'?String(a.customer||'').localeCompare(String(b.customer||''),'cs'):sort==='high'?(b.total||0)-(a.total||0):sort==='low'?(a.total||0)-(b.total||0):(b.updatedAt||0)-(a.updatedAt||0));const list=$('pz-library-list');list.innerHTML=rows.length?rows.map(pzRecordHtml).join(''):`<div class="pz-empty-state"><strong>${pzLibraryMode==='trash'?'Koš je prázdný':pzLibraryMode==='archive'?'Archiv je zatím prázdný':'Žádné koncepty'}</strong>${pzLibraryMode==='drafts'?'Rozpracované kalkulace se zde objeví automaticky.':'Zatím tu není žádná kalkulace.'}</div>`;list.querySelectorAll('[data-open-record]').forEach(el=>el.onclick=e=>{if(e.target.closest('button')||pzLibraryMode==='trash')return;pzOpenRecord(el.dataset.openRecord)});list.querySelectorAll('[data-trash]').forEach(b=>b.onclick=e=>{e.stopPropagation();pzMoveTrash(b.dataset.trash)});list.querySelectorAll('[data-restore]').forEach(b=>b.onclick=e=>{e.stopPropagation();pzRestoreTrash(b.dataset.restore)});list.querySelectorAll('[data-forever]').forEach(b=>b.onclick=e=>{e.stopPropagation();pzDeleteForever(b.dataset.forever)})};['pz-lib-search','pz-lib-from','pz-lib-to','pz-lib-sort'].forEach(id=>$(id)?.addEventListener(id==='pz-lib-search'?'input':'change',refresh));$('pz-empty-trash')?.addEventListener('click',async ()=>{if(!confirm('Opravdu chcete koš trvale vysypat?'))return;const trashRows = pzRecords().filter(r => r.type === 'trash');pzWriteRecords(pzRecords().filter(r=>r.type!=='trash'));await Promise.all(
-  trashRows.map(r => pzCloudDeleteRecord(r.id))
-);pzRenderLibrary()});refresh()}
+    function pzRenderLibrary(){const content=$('pz-library-content');if(!content)return;const titles={drafts:['Koncepty','Rozpracované kalkulace se ukládají automaticky.'],archive:['Archiv','Dokončené kalkulace bezpečně na jednom místě.'],trash:['Koš','Smazané kalkulace můžete obnovit nebo trvale odstranit.'],settings:['Nastavení','Nastavení aplikace.']};$('pz-library-title').textContent=titles[pzLibraryMode][0];$('pz-library-sub').textContent=titles[pzLibraryMode][1];if(pzLibraryMode==='settings'){if(content.querySelector('.pz-s10-panel'))return;content.innerHTML=window.pzSettingsMarkup||'';window.pzSettingsRefresh?.();return}content.innerHTML=pzLibraryTools(pzLibraryMode)+'<div class="pz-library-list" id="pz-library-list"></div>';const refresh=()=>{let rows=pzRecords().filter(r=>r.type===(pzLibraryMode==='drafts'?'draft':pzLibraryMode));const q=($('pz-lib-search')?.value||'').trim().toLocaleLowerCase('cs');const f=$('pz-lib-from')?.value,t=$('pz-lib-to')?.value,sort=$('pz-lib-sort')?.value||'new';if(q)rows=rows.filter(r=>[r.customer,r.phone,r.address,r.company,r.email].some(v=>String(v||'').toLocaleLowerCase('cs').includes(q)));if(f)rows=rows.filter(r=>new Date(r.archivedAt||r.deletedAt||r.updatedAt||0)>=new Date(f+'T00:00:00'));if(t)rows=rows.filter(r=>new Date(r.archivedAt||r.deletedAt||r.updatedAt||0)<=new Date(t+'T23:59:59'));rows.sort((a,b)=>sort==='old'?(a.updatedAt||0)-(b.updatedAt||0):sort==='az'?String(a.customer||'').localeCompare(String(b.customer||''),'cs'):sort==='high'?(b.total||0)-(a.total||0):sort==='low'?(a.total||0)-(b.total||0):(b.updatedAt||0)-(a.updatedAt||0));const list=$('pz-library-list');list.innerHTML=rows.length?rows.map(pzRecordHtml).join(''):`<div class="pz-empty-state"><strong>${pzLibraryMode==='trash'?'Koš je prázdný':pzLibraryMode==='archive'?'Archiv je zatím prázdný':'Žádné koncepty'}</strong>${pzLibraryMode==='drafts'?'Rozpracované kalkulace se zde objeví automaticky.':'Zatím tu není žádná kalkulace.'}</div>`;list.querySelectorAll('[data-open-record]').forEach(el=>el.onclick=e=>{if(e.target.closest('button')||pzLibraryMode==='trash')return;pzOpenRecord(el.dataset.openRecord)});list.querySelectorAll('[data-trash]').forEach(b=>b.onclick=e=>{e.stopPropagation();pzMoveTrash(b.dataset.trash)});list.querySelectorAll('[data-restore]').forEach(b=>b.onclick=e=>{e.stopPropagation();pzRestoreTrash(b.dataset.restore)});list.querySelectorAll('[data-forever]').forEach(b=>b.onclick=e=>{e.stopPropagation();pzDeleteForever(b.dataset.forever)})};['pz-lib-search','pz-lib-from','pz-lib-to','pz-lib-sort'].forEach(id=>$(id)?.addEventListener(id==='pz-lib-search'?'input':'change',refresh));$('pz-empty-trash')?.addEventListener('click',async ()=>{if(!confirm('Opravdu chcete koš trvale vysypat?'))return;const trashRows=pzRecords().filter(r=>r.type==='trash');localStorage.setItem(PZ_RECORDS_KEY,JSON.stringify(pzRecords().filter(r=>r.type!=='trash')));pzUpdateCounts();await Promise.all(trashRows.map(r=>pzCloudDeleteRecord(r.id)));pzRenderLibrary()});refresh()}
     function pzOpenLibrary(mode){pzSaveActiveDraft();pzLibraryMode=mode;pzRenderLibrary();$('pz-library').classList.add('open');$('pz-library').setAttribute('aria-hidden','false');$('pz-nav-overlay').classList.remove('open')}
     function pzCloseLibrary(){$('pz-library').classList.remove('open');$('pz-library').setAttribute('aria-hidden','true')}
+    window.pzRenderLibrary=pzRenderLibrary;
     function pzShowLeaveDialog(){$('pz-leave-dialog')?.classList.add('open');$('pz-leave-dialog')?.setAttribute('aria-hidden','false')}
     function pzHideLeaveDialog(){$('pz-leave-dialog')?.classList.remove('open');$('pz-leave-dialog')?.setAttribute('aria-hidden','true')}
     function pzLeaveSave(){if(pzOpenedRecord?.type==='archive'){const rows=pzRecords(),now=Date.now(),i=rows.findIndex(r=>r.id===pzOpenedRecord.id);const updated={...(i>=0?rows[i]:pzOpenedRecord.original),id:pzOpenedRecord.id,type:'archive',updatedAt:now,archivedAt:now,...pzMeta(),snapshot:pzSnapshot()};let next=rows.filter(r=>r.id!==pzActiveDraftId&&r.id!==pzOpenedRecord.id);next.unshift(updated);pzWriteRecords(next);pzHideLeaveDialog();pzResetCalculation();showToast('Změny uloženy do archivu.');return}pzSaveActiveDraft();pzHideLeaveDialog();pzResetCalculation();showToast('Změny uloženy do Konceptů.')}
-    async function pzLeaveDiscard(){if(pzOpenedRecord?.type==='draft'&&pzOpenedRecord.original){const rows=pzRecords(),i=rows.findIndex(r=>r.id===pzOpenedRecord.id);if(i>=0)rows[i]=pzDeep(pzOpenedRecord.original);else rows.unshift(pzDeep(pzOpenedRecord.original));pzWriteRecords(rows)}else if(pzOpenedRecord?.type==='archive'&&pzActiveDraftId){
-  const tempDraftId = pzActiveDraftId;
-  pzWriteRecords(pzRecords().filter(r => r.id !== tempDraftId));
-  await pzCloudDeleteRecord(tempDraftId);
-}pzHideLeaveDialog();pzResetCalculation();showToast('Změny zahozeny.')}
+    async function pzLeaveDiscard(){if(pzOpenedRecord?.type==='draft'&&pzOpenedRecord.original){const rows=pzRecords(),i=rows.findIndex(r=>r.id===pzOpenedRecord.id);if(i>=0)rows[i]=pzDeep(pzOpenedRecord.original);else rows.unshift(pzDeep(pzOpenedRecord.original));pzWriteRecords(rows)}else if(pzOpenedRecord?.type==='archive'&&pzOpenedRecord.original){const rows=pzRecords(),i=rows.findIndex(r=>r.id===pzOpenedRecord.id);if(i>=0)rows[i]=pzDeep(pzOpenedRecord.original);else rows.unshift(pzDeep(pzOpenedRecord.original));pzWriteRecords(rows)}pzHideLeaveDialog();pzResetCalculation();showToast('Změny zahozeny.')}
     window.pzDeleteCurrentCalculation=function(){if(!pzHasWork()){pzResetCalculation();showToast('Kalkulace je prázdná.');return}const rows=pzRecords(),now=Date.now();let id=pzActiveDraftId;if(id){const i=rows.findIndex(r=>r.id===id);const trashRec={id,type:'trash',previousType:'draft',createdAt:i>=0?(rows[i].createdAt||now):now,updatedAt:now,deletedAt:now,...pzMeta(),snapshot:pzSnapshot()};if(i>=0)rows[i]=trashRec;else rows.unshift(trashRec)}else{rows.unshift({id:pzId(),type:'trash',previousType:'draft',createdAt:now,updatedAt:now,deletedAt:now,...pzMeta(),snapshot:pzSnapshot()})}pzWriteRecords(rows);pzResetCalculation();showToast('Kalkulace přesunuta do koše.')}
     function pzMigrateOldSaved(){try{const raw=localStorage.getItem(CALCULATION_STORAGE_KEY);if(!raw)return;const old=JSON.parse(raw);if(old?.cart?.length){const rows=pzRecords();const id=pzId();rows.unshift({id,type:'draft',createdAt:old.savedAt||Date.now(),updatedAt:Date.now(),customer:'Obnovená kalkulace',phone:'',address:'',company:'',email:'',orderNumber:'',payment:'',total:0,itemCount:old.cart.filter(i=>i.type!=='delivery').length,snapshot:{version:1,state:{material:old.material||'smrk',product:old.product||'tramy',values:old.values||{},services:old.services||{},cart:old.cart,globalDiscount:0},inputs:{}}});pzWriteRecords(rows)}localStorage.removeItem(CALCULATION_STORAGE_KEY);localStorage.removeItem('pzDraft')}catch(_){}}
     pzMigrateOldSaved();
+    $('pz-sync-now')?.addEventListener('click',()=>pzSyncRecords());
     $('pz-menu-open')?.addEventListener('click',()=>{$('pz-nav-overlay').classList.add('open');$('pz-nav-overlay').setAttribute('aria-hidden','false');pzUpdateCounts()});
     $('pz-menu-close')?.addEventListener('click',()=>{$('pz-nav-overlay').classList.remove('open')});
     $('pz-nav-overlay')?.addEventListener('click',e=>{if(e.target===$('pz-nav-overlay'))$('pz-nav-overlay').classList.remove('open')});
     document.querySelectorAll('[data-library]').forEach(b=>b.addEventListener('click',()=>pzOpenLibrary(b.dataset.library)));
     $('pz-library-close')?.addEventListener('click',pzCloseLibrary);
     $('pz-save-archive')?.addEventListener('click',pzArchiveCurrent);
-    $('pz-loaded-back')?.addEventListener('click',async ()=>{if(!pzOpenedRecord){pzResetCalculation();return}if (pzOpenedRecord.type === 'archive' && !pzOpenedHasChanges()) {
-  if (pzActiveDraftId) {
-    const tempDraftId = pzActiveDraftId;
-    pzWriteRecords(
-      pzRecords().filter(r => r.id !== tempDraftId)
-    );
-    await pzCloudDeleteRecord(tempDraftId);
-  }
-
-  pzResetCalculation();
-  return;
-}const saveBtn=$('pz-leave-save');if(saveBtn)saveBtn.textContent=pzOpenedRecord.type==='archive'?'Uložit změny do Archivu':'Uložit změny do Konceptů';pzShowLeaveDialog()});
+    $('pz-loaded-back')?.addEventListener('click',async ()=>{if(!pzOpenedRecord){pzResetCalculation();return}if (pzOpenedRecord.type === 'archive' && !pzOpenedHasChanges()) {pzResetCalculation();return;}const saveBtn=$('pz-leave-save');if(saveBtn)saveBtn.textContent=pzOpenedRecord.type==='archive'?'Uložit změny do Archivu':'Uložit změny do Konceptů';pzShowLeaveDialog()});
     $('pz-leave-save')?.addEventListener('click',pzLeaveSave);
     $('pz-leave-discard')?.addEventListener('click',pzLeaveDiscard);
     $('pz-leave-stay')?.addEventListener('click',pzHideLeaveDialog);
     $('pz-leave-dialog')?.addEventListener('click',e=>{if(e.target===$('pz-leave-dialog'))pzHideLeaveDialog()});
-    document.addEventListener('input',e=>{if(e.target.closest('#pz-app')&&!e.target.closest('#pz-library')&&!e.target.closest('#pz-nav-overlay')){pzDirty=true;pzQueueAutosave()}},true);
-    document.addEventListener('change',e=>{if(e.target.closest('#pz-app')&&!e.target.closest('#pz-library')&&!e.target.closest('#pz-nav-overlay')){pzDirty=true;pzQueueAutosave()}},true);
-    document.addEventListener('click',e=>{if(e.target.closest('#pz-app')&&!e.target.closest('#pz-library')&&!e.target.closest('#pz-nav-overlay'))setTimeout(pzQueueAutosave,50)},true);
+    const pzMeaningfulEvent=e=>{if(!e.target.closest('#pz-app')||e.target.closest('#pz-library')||e.target.closest('#pz-nav-overlay'))return false;if(e.target.closest('#pz-contact-section'))return true;if(e.target.closest('#pz-delivery-section')){pzDeliveryTouched=true;return true}return !!pzActiveDraftId||state.cart.length>0;};
+    document.addEventListener('input',e=>{if(pzMeaningfulEvent(e)){pzDirty=true;pzQueueAutosave()}},true);
+    document.addEventListener('change',e=>{if(pzMeaningfulEvent(e)){pzDirty=true;pzQueueAutosave()}},true);
+    document.addEventListener('click',e=>{if(pzMeaningfulEvent(e))setTimeout(pzQueueAutosave,50)},true);
     window.addEventListener('pagehide',pzSaveActiveDraft);
     window.addEventListener('beforeunload',pzSaveActiveDraft);
     pzUpdateCounts();
@@ -6403,7 +6448,7 @@ renderAll();
     document.documentElement.classList.remove('pz-auth-pending');
   }
   async function loadCloudAndOpen(){
-    try{ await pzSyncRecords(); }catch(error){ console.error('PZ ÚVODNÍ SYNCHRONIZACE CHYBA:',error); }
+    try{ await pzSyncRecords(); pzStartRealtimeSync(); }catch(error){ console.error('PZ ÚVODNÍ SYNCHRONIZACE CHYBA:',error); }
     showApp();
   }
 
@@ -6470,5 +6515,458 @@ renderAll();
     }finally{ if(resetSubmit) resetSubmit.disabled=false; }
   });
   restoreSession();
+})();
+</script>
+
+<style id="pz-settings-style">
+/* TEST 8C: pouze vlastní obrazovka Nastavení */
+#pz-library-content .pz-s8-wrap{max-width:790px;margin:8px auto 35px;padding:0 12px;color:var(--pz-text)}
+#pz-library-content .pz-s8-group-title{font-size:12px;font-weight:800;letter-spacing:1.25px;color:#607668;margin:24px 10px 11px}
+#pz-library-content .pz-s8-card{background:#fff;border:1px solid #e1e9e3;border-radius:21px;overflow:hidden;box-shadow:0 6px 22px rgba(18,58,30,.035)}
+#pz-library-content .pz-s8-row{min-height:76px;display:flex;align-items:center;gap:15px;padding:14px 18px;position:relative;color:#1f3025}
+#pz-library-content .pz-s8-row+.pz-s8-row:before{content:"";height:1px;position:absolute;top:0;left:72px;right:17px;background:#e9eeea}
+#pz-library-content .pz-s8-icon{width:43px;height:43px;flex:0 0 43px;display:grid;place-items:center;background:#edf5ef;color:#285b37;border-radius:14px}
+#pz-library-content .pz-s8-icon svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+#pz-library-content .pz-s8-label{display:flex;flex-direction:column;gap:4px;flex:1;min-width:0}
+#pz-library-content .pz-s8-label strong{font-size:15px;font-weight:750;line-height:1.25}
+#pz-library-content .pz-s8-label small{font-size:12px;color:#748178;line-height:1.35}
+#pz-library-content .pz-s8-chevron{font-size:27px;color:#a5b4aa;font-weight:300;line-height:1}
+#pz-library-content .pz-s8-future{cursor:default}
+#pz-library-content .pz-s8-switchrow{cursor:pointer;user-select:none}
+#pz-library-content .pz-s8-input{position:absolute;opacity:0;width:1px;height:1px;pointer-events:none}
+#pz-library-content .pz-s8-track{width:46px;height:26px;border-radius:30px;background:#c9d5cd;position:relative;flex:0 0 46px;transition:background .18s}
+#pz-library-content .pz-s8-track span{position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 4px #0002;transition:transform .18s}
+#pz-library-content .pz-s8-input:checked+.pz-s8-track{background:#2f6942}
+#pz-library-content .pz-s8-input:checked+.pz-s8-track span{transform:translateX(20px)}
+#pz-library-content .pz-s8-switchrow:focus-within{outline:2px solid #679f74;outline-offset:-3px}
+#pz-library-content .pz-s8-foot{text-align:center;font-size:12px;color:#829187;margin:22px 0}
+/* Dark palette: all overrides scoped to the active theme; light mode unchanged */
+html.pz-dark #pz-app{--pz-green:#2c6340;--pz-green-dark:#c8e8d0;--pz-green-soft:#223a2b;--pz-bg:#111b16;--pz-card:#1c2a21;--pz-border:#35483b;--pz-text:#edf5ef;--pz-muted:#b5c4b9;--pz-shadow:0 18px 45px rgba(0,0,0,.25);color:var(--pz-text)}
+html.pz-dark #pz-app .pz-shell{background:var(--pz-bg);border-color:var(--pz-border)}
+html.pz-dark #pz-app .pz-top{background:linear-gradient(120deg,#153b27,#205239)!important;color:#fff!important}
+html.pz-dark #pz-app .pz-main{background:var(--pz-bg);color:var(--pz-text)}
+html.pz-dark #pz-app .pz-panel,html.pz-dark #pz-app .pz-card-choice,html.pz-dark #pz-app .pz-service,html.pz-dark #pz-app .pz-summary-bar,html.pz-dark #pz-app .pz-cart-item,html.pz-dark #pz-app .pz-modal-box,html.pz-dark #pz-app .pz-modal-head,html.pz-dark #pz-app .pz-detail,html.pz-dark #pz-app .pz-transport,html.pz-dark #pz-app .pz-suggestions,html.pz-dark #pz-app .pz-suggestions button{background:var(--pz-card)!important;border-color:var(--pz-border)!important;color:var(--pz-text)!important}
+html.pz-dark #pz-app .pz-card-choice.active,html.pz-dark #pz-app .pz-service.active{background:#2c6040!important;border-color:#83b996!important;color:#fff!important}
+html.pz-dark #pz-app .pz-card-choice.active span{color:#d6ebdd!important}
+html.pz-dark #pz-app .pz-card-choice strong,html.pz-dark #pz-app .pz-service h3,html.pz-dark #pz-app .pz-section h2,html.pz-dark #pz-app .pz-panel h2,html.pz-dark #pz-app .pz-cart-title strong,html.pz-dark #pz-app .pz-modal-head h2{color:#d0ecd6!important}
+html.pz-dark #pz-app .pz-card-choice:not(.active) span,html.pz-dark #pz-app .pz-service p,html.pz-dark #pz-app .pz-muted,html.pz-dark #pz-app .pz-detail span{color:#b5c4b9!important}
+html.pz-dark #pz-app .pz-summary-item{background:#243b2d!important;color:#f0f7f1!important}
+html.pz-dark #pz-app .pz-summary-item span{color:#b7cabc!important}
+html.pz-dark #pz-app .pz-field input,html.pz-dark #pz-app .pz-field textarea,html.pz-dark #pz-app .pz-field select,html.pz-dark #pz-app input:not([type="checkbox"]):not([type="radio"]),html.pz-dark #pz-app select,html.pz-dark #pz-app textarea{background:#24372b!important;color:#f2f7f3!important;border-color:#4b6652!important}
+html.pz-dark #pz-app input::placeholder,html.pz-dark #pz-app textarea::placeholder{color:#a5b7a9!important;opacity:1}
+html.pz-dark #pz-app .pz-delivery,html.pz-dark #pz-app .pz-delivery-head,html.pz-dark #pz-app .pz-delivery-body,html.pz-dark #pz-app .pz-delivery-form,html.pz-dark #pz-app .pz-delivery-collapsed{background:#203629!important;border-color:#365441!important;color:#edf5ef!important}
+html.pz-dark #pz-app .pz-delivery-title h2,html.pz-dark #pz-app .pz-delivery-title p,html.pz-dark #pz-app .pz-delivery-collapsed strong{color:#e2f0e5!important}
+html.pz-dark #pz-app .pz-delivery-choice button{background:#2c4835!important;color:#f0f6f1!important;border:1px solid #55725c!important}
+html.pz-dark #pz-app .pz-delivery-choice button.active{background:#326a45!important;color:#fff!important}
+html.pz-dark #pz-app .pz-nav-panel,html.pz-dark .pz-library{background:#121e17!important;color:#edf5ef!important}
+html.pz-dark #pz-app .pz-nav-item,html.pz-dark .pz-record,html.pz-dark .pz-library-tools{background:#1c2b21!important;color:#edf5ef!important;border-color:#3c5443!important}
+html.pz-dark #pz-app .pz-nav-text strong,html.pz-dark #pz-app .pz-nav-head strong,html.pz-dark .pz-library-head h2{color:#d0ecd6!important}
+html.pz-dark #pz-app .pz-nav-icon{background:#294633;color:#d0ecd6}
+html.pz-dark .pz-library-head{background:rgba(18,30,23,.97)!important;border-color:#3c5443!important}
+html.pz-dark .pz-library-sub{color:#b5c4b9!important}
+html.pz-dark #pz-app .pz-btn.secondary,html.pz-dark #pz-app .pz-icon-btn,html.pz-dark .pz-library .pz-icon-btn{background:#2c4232!important;color:#f2f8f3!important;border-color:#526d59!important}
+html.pz-dark #pz-app .pz-fixed{background:#2b4333!important;color:#eaf5ed!important}
+html.pz-dark #pz-app .pz-service:not(.active){background:#24372b!important}
+html.pz-dark #pz-app .pz-service:not(.active) h3{color:#e5f2e7!important}
+html.pz-dark #pz-app .pz-service:not(.active) p{color:#b7c9bb!important}
+html.pz-dark #pz-library-content .pz-s8-group-title{color:#a7bdaa}
+html.pz-dark #pz-library-content .pz-s8-card{background:#1c2b21;border-color:#395342;box-shadow:none}
+html.pz-dark #pz-library-content .pz-s8-row{color:#edf5ef}
+html.pz-dark #pz-library-content .pz-s8-row+.pz-s8-row:before{background:#395342}
+html.pz-dark #pz-library-content .pz-s8-icon{background:#2a4934;color:#d1ebd6}
+html.pz-dark #pz-library-content .pz-s8-label small,html.pz-dark #pz-library-content .pz-s8-foot{color:#b1c1b4}
+html.pz-dark #pz-library-content .pz-s8-chevron{color:#9eb3a3}
+@media(max-width:580px){#pz-library-content .pz-s8-wrap{padding:0 2px}#pz-library-content .pz-s8-row{padding:13px 12px;gap:11px}#pz-library-content .pz-s8-row+.pz-s8-row:before{left:62px}}
+@media print{html.pz-dark #pz-app,html.pz-dark #pz-app *{print-color-adjust:auto}html.pz-dark #pz-app .pz-modal-box,html.pz-dark #pz-app .pz-cart-item,html.pz-dark #pz-app .pz-detail{background:white!important;color:black!important}}
+
+/* TEST 8D: Knihovna (včetně Nastavení) je mimo #pz-app; cílit přímo. */
+html.pz-dark .pz-library{background:#111b16!important;color:#edf5ef!important}
+html.pz-dark .pz-library-shell{background:#111b16!important;color:#edf5ef!important;min-height:100%}
+html.pz-dark .pz-library-head{background:rgba(17,27,22,.97)!important;border-bottom-color:#35483b!important;color:#edf5ef!important}
+html.pz-dark .pz-library-head h2{color:#edf5ef!important}
+html.pz-dark .pz-library-sub{color:#bdcfc1!important}
+html.pz-dark .pz-library .pz-icon-btn{background:#294533!important;color:#f1f7f2!important;border-color:#48634e!important}
+html.pz-dark #pz-library-content{color:#edf5ef!important;background:#111b16!important}
+html.pz-dark #pz-library-content .pz-s8-wrap{color:#edf5ef!important}
+html.pz-dark #pz-library-content .pz-s8-group-title{color:#b5c9b9!important}
+html.pz-dark #pz-library-content .pz-s8-label small{color:#c1d0c4!important}
+html.pz-dark #pz-app .pz-contact-status{color:#c5d8c9!important}
+html.pz-dark #pz-app .pz-contact-status.saved{color:#b6e2c1!important}
+html.pz-dark #pz-app .pz-contact-arrow{color:#e0f0e3!important}
+html.pz-dark #pz-app .pz-delivery-title p{color:#d3e4d7!important}
+
+/* TEST 8E: o tři jemné stupně výraznější oddělení ploch v tmavém režimu. */
+html.pz-dark #pz-library-content .pz-s8-card{background:#2a4031!important;border:1px solid #607a65!important;box-shadow:0 5px 18px rgba(0,0,0,.18)!important}
+html.pz-dark #pz-library-content .pz-s8-row+.pz-s8-row:before{background:#607a65!important}
+html.pz-dark #pz-library-content .pz-s8-icon{background:#365b42!important;color:#f0faf2!important}
+html.pz-dark #pz-library-content .pz-s8-group-title{color:#d0e2d3!important}
+html.pz-dark #pz-library-content .pz-s8-label small,html.pz-dark #pz-library-content .pz-s8-foot{color:#d0dfd2!important}
+html.pz-dark #pz-library-content .pz-s8-chevron{color:#d1e5d5!important}
+html.pz-dark #pz-library-content .pz-s8-switchrow{border-color:#789c80!important}
+html.pz-dark #pz-app .pz-panel,html.pz-dark #pz-app .pz-card-choice:not(.active),html.pz-dark #pz-app .pz-modal-box{background:#273b2e!important;border-color:#526c58!important}
+html.pz-dark #pz-app .pz-service:not(.active){background:#304b39!important;border-color:#607c66!important}
+html.pz-dark #pz-app .pz-card-choice:not(.active) span,html.pz-dark #pz-app .pz-service p,html.pz-dark #pz-app .pz-muted{color:#d0dfd3!important}
+html.pz-dark #pz-app .pz-contact-status{color:#e0ebe2!important}
+</style>
+<script id="pz-settings-integrated">
+(function(){
+ const KEY='pz-config-theme-v1';
+ window.pzSettingsMarkup="<div class=\"pz-s8-wrap\"><div class=\"pz-s8-group-title\">VZHLED</div><div class=\"pz-s8-card\"><label class=\"pz-s8-row pz-s8-switchrow\" for=\"pz-s8-toggle\"><span class=\"pz-s8-icon\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M20.4 14.5A8.5 8.5 0 0 1 9.5 3.6 8.5 8.5 0 1 0 20.4 14.5Z\"/></svg></span><span class=\"pz-s8-label\"><strong>Tmavý režim</strong><small>Přepnout vzhled konfigurátoru</small></span><input type=\"checkbox\" id=\"pz-s8-toggle\" class=\"pz-s8-input\" role=\"switch\" aria-label=\"Tmavý režim\"><span class=\"pz-s8-track\" aria-hidden=\"true\"><span></span></span></label></div><div class=\"pz-s8-group-title\">KALKULACE A ZÁKAZNÍCI</div><div class=\"pz-s8-card\"><button type=\"button\" id=\"pz-s9-open\" class=\"pz-s8-row pz-s9-open\"><span class=\"pz-s8-icon\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2\"/><circle cx=\"9\" cy=\"7\" r=\"4\"/><path d=\"M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75\"/></svg></span><span class=\"pz-s8-label\"><strong>Kontakty a zákazníci</strong><small>Výběr kontaktů a našeptávání</small></span><span class=\"pz-s8-chevron\" aria-hidden=\"true\">›</span></button><div class=\"pz-s8-row pz-s8-future\" aria-disabled=\"true\"><span class=\"pz-s8-icon\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z\"/><path d=\"M14 2v6h6M8 13h8M8 17h8\"/></svg></span><span class=\"pz-s8-label\"><strong>Dokumenty a nabídky</strong><small>Nastavení výstupních dokumentů</small></span><span class=\"pz-s8-chevron\" aria-hidden=\"true\">›</span></div><div class=\"pz-s8-row pz-s8-future\" aria-disabled=\"true\"><span class=\"pz-s8-icon\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M10 17h4V5H2v12h3m9-9h4l4 4v5h-3M14 17h3\"/><circle cx=\"7.5\" cy=\"17.5\" r=\"2.5\"/><circle cx=\"19.5\" cy=\"17.5\" r=\"2.5\"/></svg></span><span class=\"pz-s8-label\"><strong>Doprava a mapy</strong><small>Mapové podklady a doprava</small></span><span class=\"pz-s8-chevron\" aria-hidden=\"true\">›</span></div></div><div class=\"pz-s8-group-title\">DATA A APLIKACE</div><div class=\"pz-s8-card\"><button type=\"button\" id=\"pz-s10-open\" class=\"pz-s8-row pz-s9-open\"><span class=\"pz-s8-icon\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><ellipse cx=\"12\" cy=\"5\" rx=\"9\" ry=\"3\"/><path d=\"M3 5v7c0 1.7 4 3 9 3M21 5v6M3 12v7c0 1.7 4 3 9 3\"/><path d=\"m16 18 2 2 4-4\"/></svg></span><span class=\"pz-s8-label\"><strong>Záloha a obnovení</strong><small>Koncepty a archiv</small></span><span class=\"pz-s8-chevron\" aria-hidden=\"true\">›</span></button><div class=\"pz-s8-row pz-s8-future\" aria-disabled=\"true\"><span class=\"pz-s8-icon\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M20 7v5h-5M4 17v-5h5\"/><path d=\"M5.6 9A8 8 0 0 1 19 7l1 5M4 12l1 5a8 8 0 0 0 13.4-2\"/></svg></span><span class=\"pz-s8-label\"><strong>Synchronizace</strong><small>Stav propojení a přenosu dat</small></span><span class=\"pz-s8-chevron\" aria-hidden=\"true\">›</span></div><div class=\"pz-s8-row pz-s8-future\" aria-disabled=\"true\"><span class=\"pz-s8-icon\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"M12 11v6M12 7h.01\"/></svg></span><span class=\"pz-s8-label\"><strong>O aplikaci</strong><small>Informace o konfigurátoru</small></span><span class=\"pz-s8-chevron\" aria-hidden=\"true\">›</span></div></div><p class=\"pz-s8-foot\">Další sekce zpřístupníme postupně. Zatím nejsou aktivní.</p></div>";
+ function current(){try{return localStorage.getItem(KEY)==='dark'?'dark':'light'}catch(e){return 'light'}}
+ function apply(mode){
+  const dark=mode==='dark';
+  document.documentElement.classList.toggle('pz-dark',dark);
+  const toggle=document.querySelector('#pz-library-content #pz-s8-toggle');
+  if(toggle)toggle.checked=dark;
+ }
+ window.pzSettingsRefresh=()=>apply(current());
+ document.addEventListener('change',function(e){
+  if(e.target.id!=='pz-s8-toggle')return;
+  const mode=e.target.checked?'dark':'light';
+  try{localStorage.setItem(KEY,mode)}catch(err){}
+  apply(mode);
+ });
+ apply(current());
+})();
+</script>
+<style id="pz-test8f-red-contrast">
+/* TEST 8F: only discount/error red contrast in dark mode. */
+html.pz-dark #pz-app .pz-manager-field:not(.pz-surcharge-field) label,
+html.pz-dark #pz-app .pz-manager-field:not(.pz-surcharge-field) label span,
+html.pz-dark #pz-app .pz-kpi.pz-discount-row strong,
+html.pz-dark #pz-app .pz-kpi.pz-discount-row span,
+html.pz-dark #pz-app .pz-discount-value:not(.pz-surcharge-value),
+html.pz-dark #pz-app .pz-discount-row:not(.pz-surcharge-row) strong,
+html.pz-dark #pz-app .pz-discount-row:not(.pz-surcharge-row) span {color:#ff8585!important}
+</style>
+
+<style id="pz-s9-style">
+#pz-library-content .pz-s9-open{width:100%;border:0;background:transparent;color:inherit;font:inherit;cursor:pointer;text-align:left}
+#pz-library-content .pz-s9-open:hover{background:rgba(68,124,83,.08)}
+.pz-s9-contact-btn{display:none;position:absolute;right:8px;top:32px;z-index:7;border:1px solid #9ab9a1;background:#edf6ef;color:#104c29;border-radius:9px;padding:6px 9px;cursor:pointer;font-size:18px;line-height:1}
+.pz-s9-phonefield .pz-prefix-field{padding-right:42px}
+.pz-s9-results{display:none;position:absolute;z-index:150;top:100%;left:0;right:0;background:#fff;color:#193a26;border:1px solid #aac5b0;box-shadow:0 12px 25px #0002;border-radius:12px;max-height:250px;overflow:auto}
+.pz-s9-results.open{display:block}
+.pz-s9-result{width:100%;display:block;padding:11px 12px;text-align:left;border:0;border-bottom:1px solid #e2ebe4;background:transparent;color:inherit;cursor:pointer;font:inherit}
+.pz-s9-result small{display:block;color:#60766a;margin-top:3px}
+.pz-s9-result:hover{background:#eaf3ed}
+.pz-s9-back{background:none;border:0;color:inherit;font:inherit;font-weight:700;cursor:pointer;padding:10px 0}
+.pz-s9-sub{padding:8px 4px 18px}
+.pz-s9-row{display:flex;gap:12px;align-items:center;justify-content:space-between;padding:14px 3px;border-bottom:1px solid #dce8df}
+.pz-s9-row strong{display:block}.pz-s9-row small{display:block;color:#66766b;margin-top:4px}
+.pz-s9-toggle{appearance:none;width:43px;height:25px;border-radius:30px;background:#a4b5a8;position:relative;flex-shrink:0;cursor:pointer}
+.pz-s9-toggle:before{content:"";position:absolute;width:19px;height:19px;left:3px;top:3px;background:white;border-radius:50%;transition:.15s}
+.pz-s9-toggle:checked{background:#18703b}.pz-s9-toggle:checked:before{transform:translateX(18px)}
+html.pz-dark .pz-s9-contact-btn{background:#385d42;color:#e3f5e6;border-color:#739e7d}
+html.pz-dark .pz-s9-results{background:#293e30;color:#e4f0e6;border-color:#6c9173}
+html.pz-dark .pz-s9-result{border-color:#4d6b53}html.pz-dark .pz-s9-result small{color:#bed3c3}
+html.pz-dark .pz-s9-result:hover{background:#36533e}
+html.pz-dark .pz-s9-row{border-color:#4d6b53}html.pz-dark .pz-s9-row small{color:#bed3c3}
+</style>
+<script id="pz-s9-contacts">
+(function(){
+ const KEY='pz-contact-options-v1';
+ const DEFAULT={picker:true,suggest:true};
+ function settings(){try{return {...DEFAULT,...JSON.parse(localStorage.getItem(KEY)||'{}')}}catch(e){return {...DEFAULT}}}
+ function save(v){try{localStorage.setItem(KEY,JSON.stringify(v))}catch(e){}}
+ const $=id=>document.getElementById(id);
+ const fieldIds=['name','phone','email','address','company','ico','dic'];
+ const clean=x=>String(x||'').trim();
+ function archive(){
+  let rows=[];try{rows=JSON.parse(localStorage.getItem('pzCalculationRecordsV1')||'[]')}catch(e){}
+  const sorted=(Array.isArray(rows)?rows:[]).filter(r=>r?.type==='archive').sort((a,b)=>(b.archivedAt||b.updatedAt||0)-(a.archivedAt||a.updatedAt||0));
+  const map=new Map();
+  for(const r of sorted){
+   const c=r.snapshot?.contact||r.snapshot?.customer||r.contact||r;
+   const v={name:clean(c.name||c.customer||r.customer),phone:clean(c.phone||r.phone),email:clean(c.email||r.email),address:clean(c.address||r.address),company:clean(c.company||r.company),ico:clean(c.ico||r.ico),dic:clean(c.dic||r.dic)};
+   const inp=r.snapshot?.inputs||r.snapshot?.state?.inputs||{};
+   for(const k of fieldIds)if(!v[k])v[k]=clean(inp['pz-contact-'+k]);
+   if(!v.phone&&inp['pz-contact-phone'])v.phone=clean(inp['pz-contact-phone-prefix'])+' '+clean(inp['pz-contact-phone']);
+   if(!v.name&&!v.phone)continue;
+   const key=(v.phone.replace(/\D/g,'')||v.name.toLocaleLowerCase('cs'))+'|'+v.name.toLocaleLowerCase('cs');
+   if(!map.has(key))map.set(key,v);
+  }
+  return [...map.values()];
+ }
+ function phoneParts(value){
+  let digits=clean(value).replace(/\D/g,'');
+  if(digits.startsWith('420')&&digits.length>=12)return ['+420',digits.slice(3)];
+  if(clean(value).startsWith('+')&&digits.length>9)return ['+'+digits.slice(0,-9),digits.slice(-9)];
+  return ['+420',digits];
+ }
+ function assign(v){
+  const target={name:v.name,email:v.email,address:v.address,company:v.company,ico:v.ico};
+  const [prefix,number]=phoneParts(v.phone);
+  target['phone-prefix']=prefix;target.phone=(number.match(/.{1,3}/g)||[]).join(' ');
+  if(v.dic){target['dic-prefix']=v.dic.slice(0,2);target.dic=v.dic.slice(2)}
+  const conflict=Object.entries(target).some(([k,val])=>val&&clean($('pz-contact-'+k)?.value)&&clean($('pz-contact-'+k)?.value)!==clean(val)&&!(k==='phone-prefix'&&$('pz-contact-phone')?.value.trim()===''));
+  if(conflict&&!confirm('Některé kontaktní údaje jsou již vyplněné. Chcete je nahradit údaji vybraného zákazníka?'))return;
+  for(const [k,val] of Object.entries(target)){const el=$('pz-contact-'+k);if(el&&val){el.value=val;el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}))}}
+ }
+ function refresh(){
+  const opts=settings();
+  const b=$('pz-s9-pick');if(b)b.style.display=opts.picker?'flex':'none';
+  const l=$('pz-s9-suggest');if(l&&!opts.suggest){l.classList.remove('open');l.innerHTML=''}
+ }
+ function setup(){
+  const phone=$('pz-contact-phone'),name=$('pz-contact-name'),prefix=$('pz-contact-phone-prefix');
+  if(!phone||!name||$('pz-s9-pick'))return;
+  const wrap=phone.closest('.pz-field');
+  if(!wrap)return;
+  const b=document.createElement('button');b.id='pz-s9-pick';b.type='button';b.className='pz-s9-contact-btn';b.title='Vybrat kontakt z telefonu';b.setAttribute('aria-label','Vybrat kontakt z telefonu');b.innerHTML='<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="3" width="16" height="18" rx="2"/><path d="M3 7h2M3 12h2M3 17h2"/><circle cx="13" cy="10" r="2"/><path d="M9 17c.5-2 7.5-2 8 0"/></svg><span>Kontakty</span>';
+  phone.closest('.pz-prefix-field').appendChild(b);
+  const list=document.createElement('div');list.id='pz-s9-suggest';list.className='pz-s9-results';wrap.appendChild(list);
+  // Suggestions for both name and phone: one shared panel under the currently active field.
+  function suggest(input){
+   if(!settings().suggest)return;
+   const q=clean(input.value).toLocaleLowerCase('cs');
+   if(q.length<2){list.classList.remove('open');return}
+   const matches=archive().filter(c=>[c.name,c.phone,c.company].some(x=>x.toLocaleLowerCase('cs').includes(q))).slice(0,8);
+   if(!matches.length){list.classList.remove('open');return}
+   input.closest('.pz-field').appendChild(list);
+   list.replaceChildren();
+   matches.forEach(c=>{const btn=document.createElement('button');btn.type='button';btn.className='pz-s9-result';const strong=document.createElement('strong');strong.textContent=c.name||c.company||'Zákazník';const small=document.createElement('small');small.textContent=[c.phone,c.email].filter(Boolean).join(' · ');btn.append(strong,small);btn.addEventListener('pointerdown',e=>e.preventDefault());btn.addEventListener('click',()=>{list.classList.remove('open');assign(c)});list.appendChild(btn)});
+   list.classList.add('open');
+  }
+  [name,phone].forEach(el=>{el.addEventListener('input',()=>suggest(el));el.addEventListener('focus',()=>suggest(el))});
+  document.addEventListener('click',e=>{if(!e.target.closest('.pz-s9-results')&&e.target!==name&&e.target!==phone)list.classList.remove('open')});
+  b.addEventListener('click',async()=>{
+   if(!('contacts' in navigator)&&!navigator.contacts){alert('Tento prohlížeč nepodporuje výběr kontaktů. Našeptávání zákazníků z Archivu můžete používat i bez této funkce.');return}
+   try{
+    const props=await navigator.contacts.getProperties();
+    const chosen=await navigator.contacts.select(['name','tel','email'].filter(x=>props.includes(x)),{multiple:false});
+    if(!chosen?.length)return;
+    const c=chosen[0];assign({name:c.name?.[0]||'',phone:c.tel?.[0]||'',email:c.email?.[0]||''});
+   }catch(e){if(e?.name!=='AbortError')alert('Kontakt se nepodařilo načíst: '+(e?.message||String(e)))}
+  });
+  refresh();
+ }
+ const originalRefresh=window.pzSettingsRefresh;
+ window.pzSettingsRefresh=function(){
+  originalRefresh?.();
+  const open=$('pz-s9-open');if(!open)return;
+  open.onclick=()=>{
+   const host=$('pz-library-content'),old=host.innerHTML;
+   host.innerHTML='<div class="pz-s9-sub"><button type="button" class="pz-s9-back" id="pz-s9-back">← Zpět do Nastavení</button><h2>Kontakty a zákazníci</h2><div class="pz-s8-card"><div class="pz-s9-row"><span><strong>Kontakty z telefonu</strong><small>Ikona u telefonního čísla; dostupnost závisí na prohlížeči</small></span><input class="pz-s9-toggle" type="checkbox" id="pz-s9-picker"></div><div class="pz-s9-row"><span><strong>Našeptávání z Archivu</strong><small>Vyhledávání podle jména a telefonu, bez Konceptů</small></span><input class="pz-s9-toggle" type="checkbox" id="pz-s9-autocomplete"></div></div></div>';
+   $('pz-s9-picker').checked=settings().picker;$('pz-s9-autocomplete').checked=settings().suggest;
+   $('pz-s9-back').onclick=()=>{host.innerHTML=old;window.pzSettingsRefresh()};
+   for(const [id,key] of [['pz-s9-picker','picker'],['pz-s9-autocomplete','suggest']])$(id).onchange=e=>{save({...settings(),[key]:e.target.checked});refresh()};
+  };
+ };
+ if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',setup);else setup();
+})();
+</script>
+
+<style id="pz-test9b-visual-fixes">
+/* TEST 9B: Kontaktni formular + rozpis dopravy, pouze v tmavem rezimu. */
+html.pz-dark #pz-app .pz-contact,
+html.pz-dark #pz-app .pz-contact-body{
+ background:#273b2e!important;color:#edf5ef!important;border-color:#526c58!important;
+}
+html.pz-dark #pz-app .pz-contact-grid .pz-field>label,
+html.pz-dark #pz-app .pz-contact-body label{color:#e4f1e7!important}
+html.pz-dark #pz-app .pz-contact-grid .pz-field input{color:#f1f8f3!important}
+html.pz-dark #pz-app .pz-prefix-field,
+html.pz-dark #pz-app .pz-prefix-field input,
+html.pz-dark #pz-app .pz-prefix-field .pz-prefix-input{
+ background:#24372b!important;color:#f1f8f3!important;border-color:#58745f!important;
+}
+html.pz-dark #pz-app .pz-delivery-live{
+ background:#273b2e!important;color:#edf5ef!important;border-color:#607c66!important;
+}
+html.pz-dark #pz-app .pz-delivery-live-row{border-bottom-color:#526c58!important}
+html.pz-dark #pz-app .pz-delivery-live-row span{color:#d1e2d4!important}
+html.pz-dark #pz-app .pz-delivery-live-row strong{color:#f2f8f3!important}
+html.pz-dark #pz-app .pz-delivery-live-note{color:#c7d9cb!important}
+/* Kontaktni tlacitko, bez zmeny vyberu a naseptavani. */
+#pz-app .pz-s9-phonefield{position:relative}
+#pz-app .pz-s9-phonefield .pz-prefix-field{position:relative;padding-right:130px!important}
+#pz-app .pz-s9-contact-btn{
+ display:none;position:absolute;top:50%;bottom:auto;transform:translateY(-50%);right:8px;z-index:7;
+ height:34px;min-height:34px;box-sizing:border-box;flex-direction:row;align-items:center;justify-content:center;gap:7px;
+ padding:0 11px;border:1px solid #104c29;border-radius:9px;
+ background:#104c29;color:#fff;box-shadow:0 2px 5px rgba(16,76,41,.14);
+ font:600 13px/1.2 Arial,Helvetica,sans-serif;white-space:nowrap;cursor:pointer;
+}
+#pz-app .pz-s9-contact-btn svg{display:block;flex:none;width:17px;height:17px}#pz-app .pz-s9-contact-btn span{display:inline;white-space:nowrap}
+#pz-app .pz-s9-contact-btn:hover{background:#176339;border-color:#176339}
+#pz-app .pz-s9-contact-btn:focus-visible{outline:3px solid #8ac7a0;outline-offset:2px}
+html.pz-dark #pz-app .pz-s9-contact-btn{
+ background:#397950!important;border:1px solid #8dc5a0!important;color:#fff!important;
+ box-shadow:0 2px 8px rgba(0,0,0,.25)!important;
+}
+html.pz-dark #pz-app .pz-s9-contact-btn:hover{background:#478e60!important}
+@media(max-width:450px){#pz-app .pz-s9-phonefield .pz-prefix-field{padding-right:117px!important}#pz-app .pz-s9-contact-btn{padding:0 8px;font-size:12px;gap:5px}}
+</style>
+
+
+<style id="pz-s10a-style">
+#pz-library-content .pz-s10-panel{padding:10px 4px 24px;color:inherit}
+#pz-library-content .pz-s10-card{padding:17px;border:1px solid #d4e4d7;border-radius:17px;background:#fff;margin-top:12px}
+#pz-library-content .pz-s10-card h3{margin:0 0 8px;color:#104c29}
+#pz-library-content .pz-s10-card p{font-size:13px;line-height:1.5;color:#62736a}
+#pz-library-content .pz-s10-counts{display:flex;justify-content:space-between;gap:8px;background:#f2f7f3;padding:12px;border-radius:10px;margin:12px 0;font-weight:700}
+#pz-library-content .pz-s10-download{width:100%;border:0;border-radius:12px;background:#104c29;color:white;padding:13px;font:inherit;font-weight:700;cursor:pointer}
+#pz-library-content .pz-s10-download:disabled{opacity:.55;cursor:wait}
+#pz-library-content .pz-s10-status{min-height:22px;font-size:13px;margin-top:12px}
+html.pz-dark #pz-library-content .pz-s10-card{background:#2a4031;border-color:#607a65}
+html.pz-dark #pz-library-content .pz-s10-card h3{color:#e3f4e7}
+html.pz-dark #pz-library-content .pz-s10-card p{color:#c6d8ca}
+html.pz-dark #pz-library-content .pz-s10-counts{background:#365440}
+</style>
+<style id="pz-s10b-polish">
+#pz-library-content .pz-s10-panel{max-width:780px;margin:0 auto;padding:10px 6px 30px}
+#pz-library-content .pz-s10-heading{margin:20px 0 18px}#pz-library-content .pz-s10-heading h2{margin:0;font-size:23px}#pz-library-content .pz-s10-heading p{margin:5px 0 0;color:#728076;font-size:13px}
+#pz-library-content .pz-s10-card{padding:22px;margin-top:14px;border-radius:20px;box-shadow:0 3px 12px rgba(16,76,41,.045)}
+#pz-library-content .pz-s10-cardhead{display:flex;align-items:center;gap:13px;margin-bottom:16px}#pz-library-content .pz-s10-cardhead h3{font-size:17px;margin:0 0 4px}#pz-library-content .pz-s10-cardhead p{margin:0;font-size:13px}
+#pz-library-content .pz-s10-icon{width:42px;height:42px;display:grid;place-items:center;flex-shrink:0;background:#e9f3ec;color:#104c29;border-radius:13px;font-size:23px;font-weight:700}
+#pz-library-content .pz-s10-counts{display:grid;grid-template-columns:1fr 1fr;gap:0;background:#f1f6f2;padding:0;border-radius:13px;overflow:hidden;margin:14px 0}
+#pz-library-content .pz-s10-counts>div{display:flex;flex-direction:column;gap:5px;padding:13px 16px}#pz-library-content .pz-s10-counts span{font-size:12px;color:#66766b;font-weight:500}#pz-library-content .pz-s10-counts strong{font-size:18px;color:#183f27}
+#pz-library-content .pz-s10-counts .pz-s10-total{grid-column:1/-1;flex-direction:row;justify-content:space-between;align-items:center;border-top:1px solid #dbe8df;padding:12px 16px}#pz-library-content .pz-s10-counts .pz-s10-total strong{font-size:14px}
+#pz-library-content .pz-s10-download,#pz-library-content .pz-s10-filebutton{display:flex;align-items:center;justify-content:center;min-height:45px;box-sizing:border-box;border-radius:12px;font:700 14px Arial,Helvetica,sans-serif;cursor:pointer;text-align:center}
+#pz-library-content .pz-s10-filebutton{background:#edf5ef;color:#104c29;border:1px solid #a9c7b1;width:100%;padding:10px 14px}#pz-library-content .pz-s10-filebutton:hover{background:#e0eee4}
+#pz-library-content #pz-s10-import{position:absolute!important;width:1px!important;height:1px!important;opacity:0!important;overflow:hidden!important;pointer-events:none!important}
+#pz-library-content #pz-s10-import:focus-visible + .pz-s10-preview{outline:2px solid #104c29}
+#pz-library-content .pz-s10-preview{background:#f3f7f4;border-radius:11px;padding:12px;margin-top:12px;min-height:0;overflow-wrap:anywhere}#pz-library-content .pz-s10-safe{font-size:12px;color:#66776b;margin:12px 0 0}
+html.pz-dark #pz-library-content .pz-s10-icon{background:#365d42;color:#e3f5e8}html.pz-dark #pz-library-content .pz-s10-counts,html.pz-dark #pz-library-content .pz-s10-preview{background:#304a37}html.pz-dark #pz-library-content .pz-s10-counts span{color:#c6d8ca}html.pz-dark #pz-library-content .pz-s10-counts strong{color:#f1f8f3}html.pz-dark #pz-library-content .pz-s10-counts .pz-s10-total{border-color:#56715d}html.pz-dark #pz-library-content .pz-s10-filebutton{background:#365d42;color:#eef9f1;border-color:#719e7e}html.pz-dark #pz-library-content .pz-s10-safe{color:#c6d8ca}
+@media(max-width:520px){#pz-library-content .pz-s10-card{padding:16px}}
+</style>
+<style id="pz-s10c-compact-fix">
+/* TEST 10C: compact Settings style; no behavior change */
+#pz-library-content .pz-s10-panel{max-width:690px;padding:6px 0 20px}
+#pz-library-content .pz-s10-card{padding:17px 19px;margin-top:10px;border-radius:17px;box-shadow:none}
+#pz-library-content .pz-s10-cardhead{margin-bottom:12px;gap:11px}
+#pz-library-content .pz-s10-icon{width:36px;height:36px;border-radius:11px;font-size:20px}
+#pz-library-content .pz-s10-counts{margin:10px 0 12px}
+#pz-library-content .pz-s10-counts>div{padding:9px 13px}
+#pz-library-content .pz-s10-counts .pz-s10-total{padding:9px 13px}
+#pz-library-content .pz-s10-download,#pz-library-content .pz-s10-filebutton{min-height:40px}
+#pz-library-content .pz-s10-status:empty{display:none}
+#pz-library-content .pz-s10-card .pz-s10-status:not(.pz-s10-preview){min-height:0;margin-top:5px}
+#pz-library-content .pz-s10-safe{margin-top:10px}
+html.pz-dark #pz-library-content .pz-s10-card{box-shadow:none}
+</style>
+<style id="pz-s10d-design">
+#pz-library-content .pz-s10-panel{max-width:720px;margin:0 auto;padding:8px 4px 24px}
+#pz-library-content .pz-s10-card{padding:18px 20px;margin-top:12px;border-radius:18px}
+#pz-library-content .pz-s10-cardhead{margin-bottom:13px}
+#pz-library-content .pz-s10-icon{width:42px;height:42px;border-radius:13px}
+#pz-library-content .pz-s10-icon svg,#pz-library-content .pz-s10-download svg,#pz-library-content .pz-s10-filebutton svg,#pz-library-content .pz-s10-selected svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
+#pz-library-content .pz-s10-counts{grid-template-columns:repeat(3,minmax(0,1fr));margin:11px 0 13px;border-radius:12px}
+#pz-library-content .pz-s10-counts>div,#pz-library-content .pz-s10-counts .pz-s10-total{grid-column:auto;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;padding:11px 5px;border:0;border-right:1px solid #dbe8df}
+#pz-library-content .pz-s10-counts>div:last-child{border-right:0}
+#pz-library-content .pz-s10-counts strong,#pz-library-content .pz-s10-counts .pz-s10-total strong{font-size:21px;font-weight:750}
+#pz-library-content .pz-s10-counts span{font-size:12px}
+#pz-library-content .pz-s10-download,#pz-library-content .pz-s10-filebutton{display:flex;gap:9px;align-items:center;justify-content:center;min-height:44px}
+#pz-library-content .pz-s10-download svg,#pz-library-content .pz-s10-filebutton svg{width:18px;height:18px}
+#pz-library-content .pz-s10-selected{display:flex;align-items:center;gap:12px;padding:12px 14px;background:#f1f6f2;border-radius:12px;margin:0 0 11px;color:#104c29}
+#pz-library-content .pz-s10-selected>span{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
+#pz-library-content .pz-s10-selected strong{font-size:13px;overflow-wrap:anywhere}
+#pz-library-content .pz-s10-selected small{font-size:12px;color:#6a7c70}
+#pz-library-content .pz-s10-selected>svg:last-child{width:20px;height:20px}
+#pz-library-content .pz-s10-preview{margin-top:10px;padding:10px 12px;font-size:12px}
+html.pz-dark #pz-library-content .pz-s10-selected{background:#304a37;color:#e3f5e8}
+html.pz-dark #pz-library-content .pz-s10-selected small{color:#c6d8ca}
+html.pz-dark #pz-library-content .pz-s10-counts>div{border-color:#56715d}
+@media(max-width:520px){#pz-library-content .pz-s10-card{padding:15px}#pz-library-content .pz-s10-counts>div{padding:10px 3px}}
+</style>
+<style id="pz-s10e-clear-style">
+#pz-library-content .pz-s10-selected{position:relative;padding-right:49px}
+#pz-library-content .pz-s10-clear{position:absolute;right:10px;top:9px;display:grid;place-items:center;width:29px;height:29px;padding:5px;border:1px solid transparent;border-radius:9px;background:transparent;color:#54705c;cursor:pointer}
+#pz-library-content .pz-s10-clear[hidden]{display:none!important}
+#pz-library-content .pz-s10-clear:hover,#pz-library-content .pz-s10-clear:focus-visible{background:#deebe1;border-color:#abc5b1;color:#104c29}
+#pz-library-content .pz-s10-clear svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round}
+html.pz-dark #pz-library-content .pz-s10-clear{color:#d6e8da}
+html.pz-dark #pz-library-content .pz-s10-clear:hover,html.pz-dark #pz-library-content .pz-s10-clear:focus-visible{background:#43694c;color:#fff}
+</style>
+<script id="pz-s10a-backup">
+(function(){
+ const $=id=>document.getElementById(id);
+ function localRows(){try{const r=JSON.parse(localStorage.getItem('pzCalculationRecordsV1')||'[]');return Array.isArray(r)?r:[]}catch(_){return []}}
+ function validRows(rows){return rows.filter(r=>r&&r.id&&(r.type==='draft'||r.type==='archive'))}
+ function render(){
+  const host=$('pz-library-content');if(!host)return;
+  const old=host.innerHTML;
+  const rows=validRows(localRows());
+  const draft=rows.filter(r=>r.type==='draft').length,archive=rows.filter(r=>r.type==='archive').length;
+  host.innerHTML=`<div class="pz-s10-panel"><button type="button" class="pz-s9-back" id="pz-s10-back">← Zpět do Nastavení</button><section class="pz-s10-card"><div class="pz-s10-cardhead"><span class="pz-s10-icon" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 17v3h16v-3"/></svg></span><div><h3>Vytvořit zálohu</h3><p>Uložit Koncepty a Archiv do jednoho souboru</p></div></div><div class="pz-s10-counts"><div><span>Koncepty</span><strong>${draft}</strong></div><div><span>Archiv</span><strong>${archive}</strong></div><div class="pz-s10-total"><span>Celkem</span><strong>${draft+archive}</strong></div></div><button type="button" class="pz-s10-download" id="pz-s10-export"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 17v3h16v-3"/></svg> Stáhnout zálohu</button><div class="pz-s10-status" id="pz-s10-status" role="status"></div></section><section class="pz-s10-card"><div class="pz-s10-cardhead"><span class="pz-s10-icon" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17v3h16v-3M12 16V4m-5 5 5-5 5 5"/></svg></span><div><h3>Obnovit ze zálohy</h3><p>Vybrat a zkontrolovat uloženou zálohu</p></div></div><div class="pz-s10-selected"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6v20h12V6zM14 2v4h4M9 13h6m-6 4h6"/></svg><span><strong id="pz-s10-filename">Soubor zatím nevybrán</strong><small>Podporovaný formát: .json</small></span><button type="button" id="pz-s10-clear" class="pz-s10-clear" aria-label="Zrušit vybraný soubor" title="Zrušit výběr souboru" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div><label class="pz-s10-filebutton" for="pz-s10-import"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h7l2 2h9v11H3zM3 6v13M8 14h8"/></svg> Vybrat zálohu</label><input type="file" id="pz-s10-import" accept=".json,application/json" aria-label="Vybrat záložní soubor JSON"><div id="pz-s10-preview" class="pz-s10-status pz-s10-preview" role="status" aria-live="polite">Zatím nebyl vybrán soubor.</div><p class="pz-s10-safe">TEST 10D: Pouze náhled. Žádná data se neobnovují ani neposílají do Supabase.</p></section></div>`;
+  $('pz-s10-back').onclick=()=>{host.innerHTML=old;window.pzSettingsRefresh?.()};
+  $('pz-s10-export').onclick=exportBackup;
+  $('pz-s10-import').addEventListener('change',previewBackup);
+  $('pz-s10-clear').addEventListener('click',()=>{
+   previewSerial++;
+   const input=$('pz-s10-import');if(input)input.value='';
+   const name=$('pz-s10-filename');if(name)name.textContent='Soubor zatím nevybrán';
+   const clear=$('pz-s10-clear');if(clear)clear.hidden=true;
+   const out=$('pz-s10-preview');if(out)out.textContent='Zatím nebyl vybrán soubor.';
+  });
+ }
+ let previewSerial=0;
+ async function previewBackup(e){
+  const out=$('pz-s10-preview');if(!out)return;
+  const serial=++previewSerial;out.replaceChildren();const file=e.target.files?.[0];const filename=$('pz-s10-filename');if(filename)filename.textContent=file?file.name:'Soubor zatím nevybrán';const clear=$('pz-s10-clear');if(clear)clear.hidden=!file;if(file)out.textContent='Načítám a kontroluji zálohu…';if(!file){out.textContent='Zatím nebyl vybrán soubor.';return}
+  const line=(label,value)=>{const p=document.createElement('p');p.style.margin='7px 0';const b=document.createElement('strong');b.textContent=label+' ';p.append(b,document.createTextNode(String(value)));out.appendChild(p)};
+  try{
+   if(file.size>30*1024*1024)throw Error('Soubor je příliš velký (maximum 30 MB).');
+   const raw=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result||''));reader.onerror=()=>reject(Error('Nepodařilo se přečíst soubor.'));reader.readAsText(file,'UTF-8')});
+   if(serial!==previewSerial)return;
+   const obj=JSON.parse(raw);
+   if(!obj||obj.format!=='PilaZelezniceBackup'||obj.version!==1||!Array.isArray(obj.records))throw Error('Neplatný nebo nepodporovaný formát zálohy.');
+   if(!Number.isFinite(Date.parse(obj.createdAt)))throw Error('Chybí platné datum zálohy.');
+   if(!['cloud-and-local','local-only'].includes(obj.scope))throw Error('Neplatný rozsah zálohy.');
+   const ids=new Set();
+   for(const r of obj.records){
+    if(!r||typeof r!=='object'||typeof r.id!=='string'||!r.id.trim()||!['draft','archive'].includes(r.type)||!r.snapshot||typeof r.snapshot!=='object'||!Number.isFinite(Number(r.updatedAt)))throw Error('Záloha obsahuje neplatný záznam.');
+    if(ids.has(r.id))throw Error('Záloha obsahuje duplicitní identifikátory.');ids.add(r.id);
+   }
+   const existing=new Map(validRows(localRows()).map(r=>[r.id,r]));
+   let add=0,newer=0,unchanged=0,conflict=0,older=0;
+   for(const r of obj.records){const old=existing.get(r.id);if(!old){add++;continue}
+    if(JSON.stringify(old)===JSON.stringify(r)){unchanged++;continue}
+    const a=Number(r.updatedAt),b=Number(old.updatedAt);
+    if(a>b)newer++;else if(a<b)older++;else conflict++;
+   }
+   line('Soubor:',file.name);
+   line('Vytvořeno:',new Date(obj.createdAt).toLocaleString('cs-CZ'));
+   line('Rozsah:',obj.scope==='local-only'?'Pouze místně dostupná data':'Cloudová a místní data');
+   line('Koncepty:',obj.records.filter(r=>r.type==='draft').length);
+   line('Archiv:',obj.records.filter(r=>r.type==='archive').length);
+   line('Nové vůči tomuto zařízení:',add);
+   line('Novější verze v záloze:',newer);
+   line('Novější verze v zařízení:',older);
+   line('Shodné:',unchanged);
+   line('Nejasné konflikty:',conflict);
+   const title=document.createElement('p');title.style.fontWeight='700';title.textContent='Režim obnovení (pouze náhled):';out.appendChild(title);
+   for(const [value,label] of [['merge','Sloučit data (doporučeno)'],['replace','Nahradit data']]){const row=document.createElement('label');row.style.cssText='display:block;margin:8px 0';const radio=document.createElement('input');radio.type='radio';radio.name='pz-s10-mode';radio.value=value;radio.checked=value==='merge';row.append(radio,document.createTextNode(' '+label));out.appendChild(row)}
+   const note=document.createElement('p');note.style.cssText='font-weight:700;margin-top:12px';note.textContent='TEST 10D: Náhled porovnává pouze s daty tohoto zařízení. Cloudové konflikty, trvalá smazání a čísla KG se před skutečným obnovením musí ověřit zvlášť. Žádné obnovení se nyní neprovede.';out.appendChild(note);
+  }catch(err){if(serial===previewSerial)out.textContent='Soubor nelze načíst: '+(err?.message||'neznámá chyba')}
+ }
+ async function exportBackup(){
+  const button=$('pz-s10-export'),status=$('pz-s10-status');if(!button||!status)return;
+  button.disabled=true;status.textContent='Ověřuji aktuální data…';
+  try{
+   // Offline: export pouze lokálně dostupných dat, výslovně označený v souboru.
+   const online=navigator.onLine;
+   let cloud=null;
+   if(online){
+    if(typeof pzCloudLoadRecords!=='function')throw Error('Cloudové ověření není dostupné.');
+    cloud=await pzCloudLoadRecords();
+    if(!cloud)throw Error('Nepodařilo se načíst data ze Supabase. Zkuste to znovu nebo přejděte offline.');
+   }
+   const local=localRows();
+   const tombs=typeof pzLocalTombstones==='function'?pzLocalTombstones():[];
+   const merged=cloud&&typeof pzMergeRecords==='function'?pzMergeRecords(local,cloud,tombs):{visible:local};
+   const rows=validRows(merged.visible);
+   const payload={format:'PilaZelezniceBackup',version:1,createdAt:new Date().toISOString(),scope:online?'cloud-and-local':'local-only',records:rows};
+   const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json;charset=utf-8'});
+   const url=URL.createObjectURL(blob),a=document.createElement('a');
+   const date=new Date(),stamp=[date.getFullYear(),String(date.getMonth()+1).padStart(2,'0'),String(date.getDate()).padStart(2,'0')].join('-');
+   a.href=url;a.download='Pila_Zeleznice_Zaloha_'+stamp+'.json';document.body.appendChild(a);a.click();a.remove();
+   setTimeout(()=>URL.revokeObjectURL(url),10000);
+   status.textContent='Záloha připravena ('+rows.length+' kalkulací).'+(online?'':' Pozor: pouze data dostupná v tomto zařízení.');
+  }catch(err){status.textContent='Záloha nebyla vytvořena: '+(err?.message||'neznámá chyba');}
+  finally{button.disabled=false}
+ }
+ document.addEventListener('click',function(e){if(e.target.closest('#pz-s10-open'))render()});
 })();
 </script>
