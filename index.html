@@ -997,7 +997,8 @@ function pzStartRealtimeSync(){
       left:50%;
       top:50%;
       transform:translate(-50%,-50%);
-      width:min(560px,calc(100vw - 40px));      min-height:118px;
+      width:min(560px,calc(100vw - 40px));
+      min-height:118px;
       background:#2f753b;
       border:2px solid rgba(255,255,255,.9);
       border-radius:22px;
@@ -1996,7 +1997,8 @@ visibility: hidden;
 
     /* =====================================================
        DOLADĚNÍ ROZLOŽENÍ – 2 VOLBY VEDLE SEBE + GDPR
-       Pouze CSS, bez zásahu do funkcí kalkulátoru.       ===================================================== */
+       Pouze CSS, bez zásahu do funkcí kalkulátoru.
+       ===================================================== */
 
     /* V prostoru Webnode zobrazujeme druh dřeva i sortiment
        přehledně po dvou kartách vedle sebe. */
@@ -2988,6 +2990,7 @@ visibility: hidden;
     <div class="pz-status" id="pz-delivery-status"></div>
   </div>
 </div>
+
 
 
 
@@ -3994,7 +3997,8 @@ const s = CONFIG.services[key];
 
 
 
-// Hoblování řešíme zvlášťif(key === "planing"){
+// Hoblování řešíme zvlášť
+if(key === "planing"){
 
 
 
@@ -4993,7 +4997,8 @@ document.querySelectorAll("[data-service-choice]").forEach(control=>{
         state.cart.push(item);
       }
       showToast("Položka byla přidána do kalkulace");
-      bumpCart();      resetForm();
+      bumpCart();
+      resetForm();
       renderCart();
       saveDraft(true);
     }
@@ -5992,7 +5997,8 @@ if(deliveryCollapsed) deliveryCollapsed.style.display = "flex";
     function pzWordQty(items){
       const mode=items[0]?.calc?.prod?.priceMode;
       if(mode==="m")return `${pzWordCompactNum(items.reduce((n,x)=>n+Number(x.calc?.met?.bm||0),0),2)} bm`;
-      if(mode==="piece")return `${fmtNum(items.reduce((n,x)=>n+Number(x.calc?.met?.count||0),0),0)} ks`;      return `${fmtNum(items.reduce((n,x)=>n+Number(x.calc?.met?.volume||0),0),3)} m³`;
+      if(mode==="piece")return `${fmtNum(items.reduce((n,x)=>n+Number(x.calc?.met?.count||0),0),0)} ks`;
+      return `${fmtNum(items.reduce((n,x)=>n+Number(x.calc?.met?.volume||0),0),3)} m³`;
     }
     function pzWordCompactNum(value,maxDigits=2){
       const n=Number(value||0);
