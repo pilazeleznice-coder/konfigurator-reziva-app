@@ -1,5 +1,5 @@
 <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Konfigurátor řeziva – Pila Železnice</title>
 
 
@@ -6719,7 +6719,7 @@ html.pz-dark .pz-s9-row{border-color:#4d6b53}html.pz-dark .pz-s9-row small{color
   if(!phone||!name||$('pz-s9-pick'))return;
   const wrap=phone.closest('.pz-field');
   if(!wrap)return;
-  const b=document.createElement('button');b.id='pz-s9-pick';b.type='button';b.className='pz-s9-contact-btn';b.title='Vybrat kontakt z telefonu';b.setAttribute('aria-label','Vybrat kontakt z telefonu');b.innerHTML='<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="3" width="16" height="18" rx="2"/><path d="M3 7h2M3 12h2M3 17h2"/><circle cx="13" cy="10" r="2"/><path d="M9 17c.5-2 7.5-2 8 0"/></svg><span>Kontakty</span>';
+  const b=document.createElement('button');b.id='pz-s9-pick';b.type='button';b.className='pz-s9-contact-btn';b.title='Vybrat kontakt z telefonu';b.setAttribute('aria-label','Vybrat kontakt z telefonu');b.innerHTML='<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="3" width="16" height="18" rx="2"/><path d="M3 7h2M3 12h2M3 17h2"/><circle cx="13" cy="10" r="2"/><path d="M9 17c.5-2 7.5-2 8 0"/></svg>';
   phone.closest('.pz-prefix-field').appendChild(b);
   const list=document.createElement('div');list.id='pz-s9-suggest';list.className='pz-s9-results';wrap.appendChild(list);
   // Suggestions for both name and phone: one shared panel under the currently active field.
@@ -6737,7 +6737,7 @@ html.pz-dark .pz-s9-row{border-color:#4d6b53}html.pz-dark .pz-s9-row small{color
   [name,phone].forEach(el=>{el.addEventListener('input',()=>suggest(el));el.addEventListener('focus',()=>suggest(el))});
   document.addEventListener('click',e=>{if(!e.target.closest('.pz-s9-results')&&e.target!==name&&e.target!==phone)list.classList.remove('open')});
   b.addEventListener('click',async()=>{
-   if(!('contacts' in navigator)&&!navigator.contacts){alert('Tento prohlížeč nepodporuje výběr kontaktů. Našeptávání zákazníků z Archivu můžete používat i bez této funkce.');return}
+   if(!navigator.contacts || typeof navigator.contacts.select!=='function' || typeof navigator.contacts.getProperties!=='function'){alert('V této nainstalované aplikaci není systémový výběr kontaktů dostupný. Zkus otevřít konfigurátor přímo v Chromu. Našeptávání zákazníků z Archivu funguje i bez této funkce.');return}
    try{
     const props=await navigator.contacts.getProperties();
     const chosen=await navigator.contacts.select(['name','tel','email'].filter(x=>props.includes(x)),{multiple:false});
@@ -6803,6 +6803,28 @@ html.pz-dark #pz-app .pz-s9-contact-btn{
 }
 html.pz-dark #pz-app .pz-s9-contact-btn:hover{background:#478e60!important}
 @media(max-width:450px){#pz-app .pz-s9-phonefield .pz-prefix-field{padding-right:117px!important}#pz-app .pz-s9-contact-btn{padding:0 8px;font-size:12px;gap:5px}}
+/* TEST 10F – pouze mobilní bezpečné okraje a kompaktní kontakty */
+@media(max-width:700px){
+  @media(display-mode:standalone){
+    html{background:#f6f8f5}
+    body{padding-top:env(safe-area-inset-top,0px)!important;padding-bottom:env(safe-area-inset-bottom,0px)!important}
+    #pz-app{margin-top:0!important}
+  }
+  #pz-app .pz-s9-phonefield .pz-prefix-field{
+    padding-right:52px!important;
+    min-width:0;
+  }
+  #pz-app .pz-s9-phonefield .pz-prefix-value{
+    min-width:0!important;
+    width:100%;
+  }
+  #pz-app .pz-s9-contact-btn{
+    width:36px!important;min-width:36px!important;height:36px!important;min-height:36px!important;
+    right:7px!important;padding:0!important;border-radius:9px!important;gap:0!important;
+  }
+  #pz-app .pz-s9-contact-btn svg{width:19px!important;height:19px!important}
+  #pz-app .pz-s9-contact-btn span{display:none!important}
+}
 </style>
 
 
@@ -6976,3 +6998,23 @@ html.pz-dark #pz-library-content .pz-s10-clear:hover,html.pz-dark #pz-library-co
  document.addEventListener('click',function(e){if(e.target.closest('#pz-s10-open'))render()});
 })();
 </script>
+<style id="pz-test10g-mobile-header">
+/* TEST 10G: oddělená karta souhrnu a drobné ovládací ikonky */
+@media screen and (max-width: 700px) {
+  #pz-app .pz-top {display:flex!important;flex-direction:column!important;align-items:stretch!important;gap:14px!important;padding:16px 14px!important;min-width:0!important}
+  #pz-app .pz-brand {min-width:0!important;max-width:100%!important;gap:12px!important}
+  #pz-app .pz-brand > div {flex:1;min-width:0!important}
+  #pz-app .pz-brand h1 {font-size:clamp(18px,5.3vw,23px)!important;line-height:1.16!important;overflow-wrap:normal}
+  #pz-app .pz-brand p {font-size:12px!important;line-height:1.35!important}
+  #pz-app .pz-logo {width:60px!important;max-width:21%!important;flex-shrink:0!important}
+  #pz-app .pz-top-actions {display:grid!important;grid-template-columns:minmax(0,1fr) 42px 42px!important;grid-template-rows:auto 42px!important;gap:9px!important;width:100%!important;min-width:0!important;align-items:stretch!important}
+  #pz-app .pz-top-actions > .pz-cart-btn {grid-column:1/-1!important;grid-row:1!important;width:100%!important;min-width:0!important;max-width:none!important;padding:13px 14px!important;align-self:stretch!important}
+  #pz-app .pz-cart-btn-meta {display:flex!important;flex-wrap:wrap!important;gap:8px!important;min-width:0!important}
+  #pz-app .pz-cart-btn-total {white-space:normal!important;overflow-wrap:anywhere!important;text-align:right!important}
+  #pz-app .pz-top-actions > .pz-sync-wrap {grid-column:2!important;grid-row:2!important;position:relative!important;display:block!important;width:42px!important;min-width:0!important;height:42px!important}
+  #pz-app .pz-top-actions .pz-menu-btn {width:42px!important;min-width:42px!important;height:42px!important;min-height:42px!important;border-radius:12px!important;padding:0!important;display:grid!important;place-items:center!important}
+  #pz-app .pz-top-actions > #pz-menu-open {grid-column:3!important;grid-row:2!important;justify-self:end!important}
+  #pz-app .pz-top-actions .pz-menu-btn svg {width:22px!important;height:22px!important}
+  #pz-app .pz-sync-status-text.show {position:absolute!important;right:0!important;bottom:calc(100% + 8px)!important;z-index:5!important;max-width:min(260px,calc(100vw - 32px))!important;white-space:normal!important;text-align:center!important;box-shadow:0 3px 12px rgba(0,0,0,.12)!important}
+}
+</style>
