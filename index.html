@@ -6977,36 +6977,34 @@ html.pz-dark #pz-library-content .pz-s10-clear:hover,html.pz-dark #pz-library-co
   if(!button||!status)return;
   button.disabled=true;
   try{
-   status.textContent='TEST 10L aktivní – připravuji místní zálohu…';
    const rows=validRows(localRows());
-   if(!rows.length){status.textContent='Místní záloha je prázdná – nebyl nalezen žádný lokálně uložený Koncept ani Archiv.';return;}
+   if(!rows.length){status.textContent='Místní záloha je prázdná – nebyly nalezeny žádné místní kalkulace.';return;}
    const payload={format:'PilaZelezniceBackup',version:1,createdAt:new Date().toISOString(),scope:'local-only',records:rows};
-   const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json;charset=utf-8'});
+   const json=JSON.stringify(payload,null,2);
+   const blob=new Blob([json],{type:'application/json;charset=utf-8'});
    const d=new Date(),stamp=[d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');
    const filename='Pila_Zeleznice_MISTNI_Zaloha_'+stamp+'.json';
    const count=rows.length+' kalkulací ('+rows.filter(r=>r.type==='draft').length+' konceptů, '+rows.filter(r=>r.type==='archive').length+' archiv)';
-   // TEST 10L: Use Android native share sheet first; preserve click gesture and never claim a download succeeded.
-   // TEST 10K: Android standalone PWA may not handle synthetic blob-anchor downloads.
-   // Prefer native Android share/save dialog while still in the user click gesture.
-   if(navigator.share && typeof File==='function'){
-    const file=new File([blob],filename,{type:'application/json'});
-    if(!navigator.canShare || navigator.canShare({files:[file]})){
-     try{
-      status.textContent='Otevírám nabídku pro uložení zálohy…';
-      await navigator.share({files:[file],title:'Místní záloha Pila Železnice'});
-      status.textContent='Soubor zálohy ('+count+') byl předán vybrané aplikaci. Ověřte, že jste jej skutečně uložili. Data v Konfigurátoru se nezměnila.';
-      return;
-     }catch(err){
-      if(err?.name==='AbortError'){status.textContent='Ukládání bylo zrušeno. Žádná data se nezměnila.';return;}
-      // Unsupported share target: fall back to regular download.
-     }
+   // TEST 10M: Prefer an actual save-to-file operation where the browser supports it.
+   if(typeof window.showSaveFilePicker==='function'){
+    try{
+     const handle=await window.showSaveFilePicker({suggestedName:filename,types:[{description:'Záloha kalkulací JSON',accept:{'application/json':['.json']}}]});
+     const writable=await handle.createWritable();
+     await writable.write(blob);await writable.close();
+     status.textContent='Záloha úspěšně uložena: '+count+'.';
+     return;
+    }catch(err){
+     if(err?.name==='AbortError'){status.textContent='Uložení zálohy bylo zrušeno. Data zůstala beze změny.';return;}
+     status.textContent='Ukládání souboru není dostupné ('+(err?.name||'chyba')+'). Zkouším stažení…';
     }
    }
-   const url=URL.createObjectURL(blob),a=document.createElement('a');
-   a.href=url;a.download=filename;
-   document.body.appendChild(a);a.click();a.remove();
-   setTimeout(()=>URL.revokeObjectURL(url),60000);
-   status.textContent='TEST 10L: Android nepovolil systémové sdílení; byl proveden pouze pokus o stažení ('+count+'). Pokud soubor není ve Stažených, záloha nebyla uložena. Data zůstala beze změny.';
+   // Android standalone: data URL download avoids blob: URL download handling bugs.
+   // Click the anchor synchronously in the original button event (no await beforehand).
+   const dataUrl='data:application/json;charset=utf-8,'+encodeURIComponent(json);
+   const link=document.createElement('a');
+   link.href=dataUrl;link.download=filename;link.style.display='none';
+   document.body.appendChild(link);link.click();link.remove();
+   status.textContent='TEST 10M: Požadavek na stažení '+count+' byl odeslán. Ověřte, že soubor '+filename+' skutečně existuje ve Stažených. Pokud ne, zařízení stažení odmítlo – záloha zatím není uložená.';
   }catch(err){status.textContent='Místní záloha se nepodařila: '+(err?.message||String(err));}
   finally{button.disabled=false;}
  }
