@@ -6983,8 +6983,23 @@ html.pz-dark #pz-library-content .pz-s10-clear:hover,html.pz-dark #pz-library-co
    const json=JSON.stringify(payload,null,2);
    const d=new Date(),stamp=[d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');
    const filename='Pila_Zeleznice_MISTNI_Zaloha_'+stamp+'.json';
-   const controller=navigator.serviceWorker?.controller;
-   if(!controller)throw Error('Service Worker aplikaci neřídí. Zavřete a znovu otevřete PWA.');
+   if(!('serviceWorker' in navigator))throw Error('Service Worker není v tomto prostředí podporován.');
+   let controller=navigator.serviceWorker.controller;
+   if(!controller){
+    status.textContent='TEST 10P: Registruji službu pro bezpečné stažení…';
+    const registration=await navigator.serviceWorker.register('./service-worker.js',{scope:'./'});
+    await navigator.serviceWorker.ready;
+    if(!navigator.serviceWorker.controller){
+     await new Promise((resolve,reject)=>{
+      const timer=setTimeout(()=>{navigator.serviceWorker.removeEventListener('controllerchange',changed);reject(Error('Service Worker se nespustil jako řídicí služba (controllerchange timeout).'));},12000);
+      function changed(){if(navigator.serviceWorker.controller){clearTimeout(timer);navigator.serviceWorker.removeEventListener('controllerchange',changed);resolve();}}
+      navigator.serviceWorker.addEventListener('controllerchange',changed);
+      changed();
+     });
+    }
+    controller=navigator.serviceWorker.controller;
+   }
+   if(!controller)throw Error('Service Worker není aktivní ani po registraci.');
    const id=Date.now()+'-'+Math.random().toString(36).slice(2);
    const channel=new MessageChannel();
    const result=await new Promise((resolve,reject)=>{
