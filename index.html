@@ -7009,19 +7009,20 @@ html.pz-dark #pz-library-content .pz-s10-clear:hover,html.pz-dark #pz-library-co
    });
    if(!result?.ok)throw Error((result?.name||'Error')+': '+(result?.message||'Příprava selhala'));
    const downloadPath='./__pz_local_backup_download__?id='+encodeURIComponent(id);
-   // TEST 10Q: Verify the real Service Worker response without triggering a download.
+   // TEST 10R: Navigate directly to the verified HTTP attachment on the next real tap.
    const response=await fetch(downloadPath,{cache:'no-store'});
-   const disposition=response.headers.get('Content-Disposition')||'(chybí)';
-   const contentType=response.headers.get('Content-Type')||'(chybí)';
+   const disposition=response.headers.get('Content-Disposition')||'';
    const returned=await response.text();
-   const exact=returned===json;
-   status.textContent='TEST 10Q: HTTP '+response.status+
-    ', typ '+contentType+
-    ', příloha '+disposition+
-    ', shoda JSON '+(exact?'ANO':'NE')+
-    ', délka '+returned.length+'/'+json.length+
-    '. Diagnostika nic nestahuje ani neupravuje.';
-   link.removeAttribute('download');link.href='#';link.onclick=exportLocalBackup;
+   if(!response.ok || !disposition.toLowerCase().includes('attachment') || returned!==json)
+    throw Error('HTTP příloha neprošla ověřením: '+response.status);
+   link.removeAttribute('download');
+   link.href=downloadPath;
+   link.onclick=null;
+   status.textContent='TEST 10R: JSON ověřen ('+rows.length+' kalkulací). Klepněte PODRUHÉ pro otevření HTTP přílohy.';
+   link.addEventListener('click',function(){
+    status.textContent='TEST 10R: Otevření přílohy vyvoláno; skutečné uložení ověřte v telefonu.';
+    setTimeout(()=>{link.href='#';link.onclick=exportLocalBackup},120000);
+   },{once:true});
   }catch(err){status.textContent='TEST 10O: '+(err?.name||'Error')+': '+(err?.message||String(err));}
  }
  async function exportBackup(){
