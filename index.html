@@ -6972,7 +6972,7 @@ html.pz-dark #pz-library-content .pz-s10-clear:hover,html.pz-dark #pz-library-co
    const note=document.createElement('p');note.style.cssText='font-weight:700;margin-top:12px';note.textContent='TEST 10J: Soubor byl úspěšně načten a ověřen. Toto je výhradně bezpečný náhled bez obnovení. Sloučení ani nahrazení zatím nelze spustit. Náhled porovnává pouze data tohoto zařízení; cloudové konflikty, trvalá smazání a čísla KG se před skutečným obnovením musí ověřit zvlášť.';out.appendChild(note);
   }catch(err){if(serial===previewSerial)out.textContent='Soubor nelze načíst: '+(err?.message||'neznámá chyba')}
  }
- async async function exportLocalBackup(){
+ async function exportLocalBackup(){
   const button=$('pz-s10-export-local'),status=$('pz-s10-status');
   if(!button||!status)return;
   button.disabled=true;
