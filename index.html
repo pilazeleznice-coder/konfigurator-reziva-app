@@ -7008,14 +7008,20 @@ html.pz-dark #pz-library-content .pz-s10-clear:hover,html.pz-dark #pz-library-co
     controller.postMessage({type:'PZ_BACKUP_PREPARE_10O',id,json,filename},[channel.port2]);
    });
    if(!result?.ok)throw Error((result?.name||'Error')+': '+(result?.message||'Příprava selhala'));
-   link.href='./__pz_local_backup_download__?id='+encodeURIComponent(id);
-   link.download=filename;
-   link.onclick=null;
-   status.textContent='TEST 10O: Připraveno '+rows.length+' kalkulací. Klepněte PODRUHÉ na tlačítko pro stažení přes Service Worker.';
-   link.addEventListener('click',function downloadTap(){
-    status.textContent='TEST 10O: Požadavek na stažení odeslán. Ověřte soubor v telefonu; dokončení nelze automaticky potvrdit.';
-    setTimeout(()=>{link.removeAttribute('download');link.href='#';link.onclick=exportLocalBackup},120000);
-   },{once:true});
+   const downloadPath='./__pz_local_backup_download__?id='+encodeURIComponent(id);
+   // TEST 10Q: Verify the real Service Worker response without triggering a download.
+   const response=await fetch(downloadPath,{cache:'no-store'});
+   const disposition=response.headers.get('Content-Disposition')||'(chybí)';
+   const contentType=response.headers.get('Content-Type')||'(chybí)';
+   const returned=await response.text();
+   const exact=returned===json;
+   status.textContent='TEST 10Q: HTTP '+response.status+
+    ', typ '+contentType+
+    ', příloha '+disposition+
+    ', shoda JSON '+(exact?'ANO':'NE')+
+    ', délka '+returned.length+'/'+json.length+
+    '. Diagnostika nic nestahuje ani neupravuje.';
+   link.removeAttribute('download');link.href='#';link.onclick=exportLocalBackup;
   }catch(err){status.textContent='TEST 10O: '+(err?.name||'Error')+': '+(err?.message||String(err));}
  }
  async function exportBackup(){
