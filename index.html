@@ -6994,8 +6994,8 @@ html.pz-dark #pz-library-content .pz-s10-clear:hover,html.pz-dark #pz-library-co
      status.textContent='Záloha úspěšně uložena: '+count+'.';
      return;
     }catch(err){
-     if(err?.name==='AbortError'){status.textContent='Uložení zálohy bylo zrušeno. Data zůstala beze změny.';return;}
-     status.textContent='Ukládání souboru není dostupné ('+(err?.name||'chyba')+'). Zkouším stažení…';
+     if(err?.name==='AbortError'){status.textContent='TEST 10N: Android odmítl nebo zrušil dialog pro uložení (AbortError). Zkouším přímé stažení souboru…';}else{status.textContent='TEST 10N: Dialog pro uložení selhal ('+(err?.name||'chyba')+': '+(err?.message||'bez podrobností')+'). Zkouším přímé stažení…';}
+     
     }
    }
    // Android standalone: data URL download avoids blob: URL download handling bugs.
@@ -7004,7 +7004,7 @@ html.pz-dark #pz-library-content .pz-s10-clear:hover,html.pz-dark #pz-library-co
    const link=document.createElement('a');
    link.href=dataUrl;link.download=filename;link.style.display='none';
    document.body.appendChild(link);link.click();link.remove();
-   status.textContent='TEST 10M: Požadavek na stažení '+count+' byl odeslán. Ověřte, že soubor '+filename+' skutečně existuje ve Stažených. Pokud ne, zařízení stažení odmítlo – záloha zatím není uložená.';
+   status.textContent='TEST 10N: Přímé stažení souboru '+filename+' ('+count+') bylo vyvoláno. Zkontrolujte Stažené soubory. Pokud tam soubor není, stažení selhalo. Podpora dialogu: '+(typeof window.showSaveFilePicker==='function'?'ano':'ne')+'.';
   }catch(err){status.textContent='Místní záloha se nepodařila: '+(err?.message||String(err));}
   finally{button.disabled=false;}
  }
