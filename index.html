@@ -6972,11 +6972,12 @@ html.pz-dark #pz-library-content .pz-s10-clear:hover,html.pz-dark #pz-library-co
    const note=document.createElement('p');note.style.cssText='font-weight:700;margin-top:12px';note.textContent='TEST 10J: Soubor byl úspěšně načten a ověřen. Toto je výhradně bezpečný náhled bez obnovení. Sloučení ani nahrazení zatím nelze spustit. Náhled porovnává pouze data tohoto zařízení; cloudové konflikty, trvalá smazání a čísla KG se před skutečným obnovením musí ověřit zvlášť.';out.appendChild(note);
   }catch(err){if(serial===previewSerial)out.textContent='Soubor nelze načíst: '+(err?.message||'neznámá chyba')}
  }
- async function exportLocalBackup(){
+ async async function exportLocalBackup(){
   const button=$('pz-s10-export-local'),status=$('pz-s10-status');
   if(!button||!status)return;
   button.disabled=true;
   try{
+   status.textContent='TEST 10L aktivní – připravuji místní zálohu…';
    const rows=validRows(localRows());
    if(!rows.length){status.textContent='Místní záloha je prázdná – nebyl nalezen žádný lokálně uložený Koncept ani Archiv.';return;}
    const payload={format:'PilaZelezniceBackup',version:1,createdAt:new Date().toISOString(),scope:'local-only',records:rows};
@@ -6984,9 +6985,10 @@ html.pz-dark #pz-library-content .pz-s10-clear:hover,html.pz-dark #pz-library-co
    const d=new Date(),stamp=[d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');
    const filename='Pila_Zeleznice_MISTNI_Zaloha_'+stamp+'.json';
    const count=rows.length+' kalkulací ('+rows.filter(r=>r.type==='draft').length+' konceptů, '+rows.filter(r=>r.type==='archive').length+' archiv)';
+   // TEST 10L: Use Android native share sheet first; preserve click gesture and never claim a download succeeded.
    // TEST 10K: Android standalone PWA may not handle synthetic blob-anchor downloads.
    // Prefer native Android share/save dialog while still in the user click gesture.
-   if(window.matchMedia?.('(display-mode: standalone)').matches && navigator.share && typeof File==='function'){
+   if(navigator.share && typeof File==='function'){
     const file=new File([blob],filename,{type:'application/json'});
     if(!navigator.canShare || navigator.canShare({files:[file]})){
      try{
@@ -7004,7 +7006,7 @@ html.pz-dark #pz-library-content .pz-s10-clear:hover,html.pz-dark #pz-library-co
    a.href=url;a.download=filename;
    document.body.appendChild(a);a.click();a.remove();
    setTimeout(()=>URL.revokeObjectURL(url),60000);
-   status.textContent='Pokus o stažení místní zálohy: '+count+'. Zkontrolujte Stažené soubory. Pokud se soubor neobjevil, otevřete Konfigurátor v Chromu a stáhněte zálohu tam; stažení z této PWA se nepotvrdilo. Cloudová data nejsou zahrnuta.';
+   status.textContent='TEST 10L: Android nepovolil systémové sdílení; byl proveden pouze pokus o stažení ('+count+'). Pokud soubor není ve Stažených, záloha nebyla uložena. Data zůstala beze změny.';
   }catch(err){status.textContent='Místní záloha se nepodařila: '+(err?.message||String(err));}
   finally{button.disabled=false;}
  }
