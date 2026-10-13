@@ -6972,32 +6972,36 @@ html.pz-dark #pz-library-content .pz-s10-clear:hover,html.pz-dark #pz-library-co
    const note=document.createElement('p');note.style.cssText='font-weight:700;margin-top:12px';note.textContent='TEST 10J: Soubor byl úspěšně načten a ověřen. Toto je výhradně bezpečný náhled bez obnovení. Sloučení ani nahrazení zatím nelze spustit. Náhled porovnává pouze data tohoto zařízení; cloudové konflikty, trvalá smazání a čísla KG se před skutečným obnovením musí ověřit zvlášť.';out.appendChild(note);
   }catch(err){if(serial===previewSerial)out.textContent='Soubor nelze načíst: '+(err?.message||'neznámá chyba')}
  }
- function exportLocalBackup(event){
-  // TEST 10N: The actual user-clicked anchor performs the download.
-  // No picker, synthetic click, await or navigation occurs before the browser default action.
+ async function exportLocalBackup(event){
+  event.preventDefault();
   const link=event.currentTarget,status=$('pz-s10-status');
   if(!link||!status)return;
-  event.preventDefault(); // Only cancel the placeholder link; a real download follows on the next user tap.
   try{
    const rows=validRows(localRows());
    if(!rows.length){status.textContent='Místní záloha je prázdná – nebyly nalezeny žádné místní kalkulace.';return;}
    const payload={format:'PilaZelezniceBackup',version:1,createdAt:new Date().toISOString(),scope:'local-only',records:rows};
    const json=JSON.stringify(payload,null,2);
-   const blob=new Blob([json],{type:'application/json;charset=utf-8'});
    const d=new Date(),stamp=[d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');
    const filename='Pila_Zeleznice_MISTNI_Zaloha_'+stamp+'.json';
-   const url=URL.createObjectURL(blob);
-   link.href=url;link.download=filename;
-   const count=rows.length+' kalkulací ('+rows.filter(r=>r.type==='draft').length+' konceptů, '+rows.filter(r=>r.type==='archive').length+' archiv)';
-   status.textContent='TEST 10N: Soubor je připraven ('+count+'). Klepněte znovu na „Stáhnout místní zálohu“ pro přímé stažení. Úspěch ověřte ve Stažených souborech.';
-   // The second tap uses the browser's native anchor default action, with genuine activation.
+   const controller=navigator.serviceWorker?.controller;
+   if(!controller)throw Error('Service Worker aplikaci neřídí. Zavřete a znovu otevřete PWA.');
+   const id=Date.now()+'-'+Math.random().toString(36).slice(2);
+   const channel=new MessageChannel();
+   const result=await new Promise((resolve,reject)=>{
+    const timeout=setTimeout(()=>reject(Error('Service Worker neodpověděl do 10 sekund.')),10000);
+    channel.port1.onmessage=e=>{clearTimeout(timeout);resolve(e.data)};
+    controller.postMessage({type:'PZ_BACKUP_PREPARE_10O',id,json,filename},[channel.port2]);
+   });
+   if(!result?.ok)throw Error((result?.name||'Error')+': '+(result?.message||'Příprava selhala'));
+   link.href='./__pz_local_backup_download__?id='+encodeURIComponent(id);
+   link.download=filename;
    link.onclick=null;
+   status.textContent='TEST 10O: Připraveno '+rows.length+' kalkulací. Klepněte PODRUHÉ na tlačítko pro stažení přes Service Worker.';
    link.addEventListener('click',function downloadTap(){
-    link.removeEventListener('click',downloadTap);
-    setTimeout(()=>{URL.revokeObjectURL(url);link.removeAttribute('download');link.href='#';link.onclick=exportLocalBackup;},60000);
-    status.textContent='TEST 10N: Android převzal požadavek na stažení. Zkontrolujte skutečné uložení souboru ve Stažených; aplikace nemůže potvrdit dokončení stahování.';
+    status.textContent='TEST 10O: Požadavek na stažení odeslán. Ověřte soubor v telefonu; dokončení nelze automaticky potvrdit.';
+    setTimeout(()=>{link.removeAttribute('download');link.href='#';link.onclick=exportLocalBackup},120000);
    },{once:true});
-  }catch(err){status.textContent='TEST 10N: '+(err?.name||'Error')+': '+(err?.message||String(err));}
+  }catch(err){status.textContent='TEST 10O: '+(err?.name||'Error')+': '+(err?.message||String(err));}
  }
  async function exportBackup(){
   const button=$('pz-s10-export'),status=$('pz-s10-status');if(!button||!status)return;
