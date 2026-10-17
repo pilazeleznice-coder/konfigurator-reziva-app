@@ -6737,10 +6737,10 @@ html.pz-dark .pz-s9-row{border-color:#4d6b53}html.pz-dark .pz-s9-row small{color
   [name,phone].forEach(el=>{el.addEventListener('input',()=>suggest(el));el.addEventListener('focus',()=>suggest(el))});
   document.addEventListener('click',e=>{if(!e.target.closest('.pz-s9-results')&&e.target!==name&&e.target!==phone)list.classList.remove('open')});
   b.addEventListener('click',async()=>{
-   if(!navigator.contacts || typeof navigator.contacts.select!=='function' || typeof navigator.contacts.getProperties!=='function'){alert('V této nainstalované aplikaci není systémový výběr kontaktů dostupný. Zkus otevřít konfigurátor přímo v Chromu. Našeptávání zákazníků z Archivu funguje i bez této funkce.');return}
+   if(!navigator.contacts || typeof navigator.contacts.select!=='function'){alert('V této nainstalované aplikaci není systémový výběr kontaktů dostupný. Zkus otevřít konfigurátor přímo v Chromu. Našeptávání zákazníků z Archivu funguje i bez této funkce.');return}
    try{
-    const props=await navigator.contacts.getProperties();
-    const chosen=await navigator.contacts.select(['name','tel','email'].filter(x=>props.includes(x)),{multiple:false});
+    // Open synchronously from the click to preserve Android user activation.
+    const chosen=await navigator.contacts.select(['name','tel','email'],{multiple:false});
     if(!chosen?.length)return;
     const c=chosen[0];assign({name:c.name?.[0]||'',phone:c.tel?.[0]||'',email:c.email?.[0]||''});
    }catch(e){if(e?.name!=='AbortError')alert('Kontakt se nepodařilo načíst: '+(e?.message||String(e)))}
@@ -7113,34 +7113,4 @@ html.pz-dark #pz-library-content .pz-s10-clear:hover,html.pz-dark #pz-library-co
 }
 </style>
 
-<!-- TEST 10H: diagnostika dotyku na tlačítku kontaktů v PWA. Bez zásahu do dat. -->
-<script id="pz-test10h-contact-diagnostics">
-(function(){
-  function report(event){
-    var target=event.target;
-    if(!(target instanceof Element))return;
-    var button=target.closest('#pz-s9-pick');
-    var area=target.closest('.pz-s9-phonefield .pz-prefix-field');
-    if(!button&&!area)return;
-    // Zachytit i dotyk, který překryje jiný prvek uvnitř pole.
-    event.preventDefault();
-    event.stopImmediatePropagation();
-    var btn=document.getElementById('pz-s9-pick');
-    var rect=btn?btn.getBoundingClientRect():null;
-    var contacts=!!navigator.contacts;
-    var select=contacts&&typeof navigator.contacts.select==='function';
-    var props=contacts&&typeof navigator.contacts.getProperties==='function';
-    var standalone=window.matchMedia('(display-mode: standalone)').matches;
-    alert('TEST 10H – DIAGNOSTIKA KONTAKTŮ\n\n'+
-      'Kliknuto přímo na ikonu: '+(button?'ANO':'NE – zachytilo pole')+'\n'+
-      'Tlačítko existuje: '+(btn?'ANO':'NE')+'\n'+
-      'Tlačítko viditelné: '+(rect&&rect.width&&rect.height?'ANO':'NE')+'\n'+
-      'navigator.contacts: '+(contacts?'ANO':'NE')+'\n'+
-      'contacts.select: '+(select?'ANO':'NE')+'\n'+
-      'contacts.getProperties: '+(props?'ANO':'NE')+'\n'+
-      'Samostatná PWA: '+(standalone?'ANO':'NE')+'\n'+
-      'Protokol: '+location.protocol);
-  }
-  document.addEventListener('click',report,true);
-})();
-</script>
+
