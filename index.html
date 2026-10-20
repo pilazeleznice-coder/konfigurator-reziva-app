@@ -3257,9 +3257,29 @@ visibility: hidden;
           </div>
         </div>
         <div class="pz-archive-meta"><button class="pz-btn pz-archive-btn" type="button" id="pz-save-archive">Uložit do archivu</button></div>
-        <div class="pz-actions pz-word-actions" id="pz-word-actions">
-          <button class="pz-btn dark" type="button" id="pz-word">Vytvořit dokument Word</button>
-          <button class="pz-btn pz-clear-cart-btn" type="button" id="pz-clear-cart">Smazat celou kalkulaci</button>
+
+<style id="pz-document-export-style">
+#pz-cart-modal .pz-word-actions.pz-export-area{display:block;--pz-exp-bg:#f5f8f5;--pz-exp-paper:#fff;--pz-exp-ink:#23412c;--pz-exp-muted:#65756b;--pz-exp-line:#dfe7e1;--pz-exp-green:#2f5f3a}
+#pz-cart-modal .pz-export-groups{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;width:100%}
+#pz-cart-modal .pz-export-group{min-width:0;padding:15px;background:var(--pz-exp-bg);border:1px solid var(--pz-exp-line);border-radius:13px}
+#pz-cart-modal .pz-export-group h3{margin:0 0 13px;font:700 15px Arial;color:var(--pz-exp-ink)}
+#pz-cart-modal .pz-export-group .pz-btn,#pz-cart-modal .pz-export-group .pz-export-download{box-sizing:border-box;display:flex;align-items:center;justify-content:center;gap:8px;width:100%;min-height:44px;padding:10px;border-radius:9px;font:700 13px Arial;text-align:center;text-decoration:none;white-space:normal}
+#pz-cart-modal .pz-export-group .pz-btn{background:var(--pz-exp-paper);color:var(--pz-exp-ink);border:1px solid var(--pz-exp-line)}
+#pz-cart-modal .pz-export-group .pz-export-download{margin-top:8px;background:var(--pz-exp-green);border:1px solid var(--pz-exp-green);color:#fff;cursor:pointer}
+#pz-cart-modal .pz-export-group .pz-export-download[aria-disabled="true"]{background:var(--pz-exp-paper);border:1px dashed var(--pz-exp-line);color:var(--pz-exp-muted);opacity:.65;cursor:default;pointer-events:none}
+#pz-cart-modal .pz-export-group p{min-height:17px;margin:10px 0 0;font:12px Arial;color:var(--pz-exp-muted);overflow-wrap:anywhere}
+#pz-cart-modal .pz-export-group button:disabled{opacity:.65;cursor:wait}
+#pz-cart-modal .pz-export-delete{display:flex;justify-content:flex-end;border-top:1px solid var(--pz-exp-line);margin-top:18px;padding-top:18px}
+html.pz-dark #pz-cart-modal .pz-word-actions.pz-export-area{--pz-exp-bg:#263a2d;--pz-exp-paper:#1d2b22;--pz-exp-ink:#e1eee4;--pz-exp-muted:#b6c8bb;--pz-exp-line:#415648;--pz-exp-green:#376c45}
+@media(max-width:470px){#pz-cart-modal .pz-export-groups{grid-template-columns:1fr}}
+@media print{#pz-cart-modal .pz-export-area{display:none!important}}
+</style>
+        <div class="pz-actions pz-word-actions pz-export-area" id="pz-word-actions">
+          <div class="pz-export-groups">
+            <section class="pz-export-group"><h3>Dokument Word</h3><button class="pz-btn" type="button" id="pz-word">Vytvořit Word</button><a id="pz-word-download" class="pz-export-download pz-word-download-link" role="button" aria-disabled="true">Stáhnout Word</a><p id="pz-word-status" role="status">Dokument zatím není vytvořený</p></section>
+            <section class="pz-export-group"><h3>Dokument PDF</h3><button class="pz-btn" type="button" id="pz-pdf">Vytvořit PDF</button><a id="pz-pdf-download" class="pz-export-download" role="button" aria-disabled="true">Stáhnout PDF</a><p id="pz-pdf-status" role="status">Dokument zatím není vytvořený</p></section>
+          </div>
+          <div class="pz-export-delete"><button class="pz-btn pz-clear-cart-btn" type="button" id="pz-clear-cart">Smazat celou kalkulaci</button></div>
         </div>
       </div>
     </div>
@@ -5191,6 +5211,7 @@ document.querySelectorAll("[data-service-choice]").forEach(control=>{
     }
 
     function renderCart(){
+      pzInvalidateExportFiles();
       const list = $("pz-cart-list");
       if(state.cart.length===0){
         list.innerHTML = `<p class="pz-muted">Zatím není přidána žádná položka.</p>`;
@@ -6131,12 +6152,93 @@ if(deliveryCollapsed) deliveryCollapsed.style.display = "flex";
       return rows;
     }
 
+    // Independent export files, invalidated whenever their source calculation changes.
+    const pzExportState={word:null,pdf:null,pcKey:null,pc:null,pdfLoading:null,pdfFontsReady:false};
+    function pzExportSignature(){return JSON.stringify({cart:state.cart,contact:getContactData(),globalDiscount:state.globalDiscount,globalAdjustmentMode:state.globalAdjustmentMode,phonePrefix:$('pz-contact-phone-prefix')?.value});}
+    function pzExportPcNumber(key){if(pzExportState.pcKey!==key){pzExportState.pc=nextPcNumber();pzExportState.pcKey=key;}return pzExportState.pc;}
+    function pzResetExport(format,message='Dokument zatím není vytvořený'){
+      const link=$('pz-'+format+'-download');
+      if(link?.dataset.url){URL.revokeObjectURL(link.dataset.url);delete link.dataset.url;}
+      if(link){link.removeAttribute('href');link.removeAttribute('download');link.onclick=e=>e.preventDefault();link.setAttribute('aria-disabled','true');}
+      pzExportState[format]=null;
+      const status=$('pz-'+format+'-status');if(status)status.textContent=message;
+    }
+    function pzInvalidateExportFiles(){
+      const key=pzExportSignature();
+      for(const format of ['word','pdf'])if(pzExportState[format]&&pzExportState[format]!==key)pzResetExport(format,'Kalkulace se změnila. Vytvořte dokument znovu.');
+    }
+    function pzExportReady(format,key){
+      pzExportState[format]=key;
+      $('pz-'+format+'-download')?.setAttribute('aria-disabled','false');
+      const status=$('pz-'+format+'-status');if(status)status.textContent=(format==='pdf'?'PDF':'Word')+' připravený ke stažení';
+    }
+    async function pzEnsurePdfLibrary(){
+      if(window.pdfMake?.createPdf&&(pzExportState.pdfFontsReady||window.pdfMake?.vfs))return;
+      if(pzExportState.pdfLoading)return pzExportState.pdfLoading;
+      const script=src=>new Promise((resolve,reject)=>{
+        const el=document.createElement('script');el.src=src;
+        const timer=setTimeout(()=>{el.remove();reject(Error('Načítání PDF knihovny trvá příliš dlouho. Zkontrolujte připojení.'));},25000);
+        el.onload=()=>{clearTimeout(timer);resolve();};el.onerror=()=>{clearTimeout(timer);el.remove();reject(Error('Nepodařilo se načíst PDF knihovnu. Zkontrolujte připojení.'));};document.head.appendChild(el);
+      });
+      pzExportState.pdfLoading=(async()=>{
+        if(!window.pdfMake?.createPdf)await script('https://cdn.jsdelivr.net/npm/pdfmake@0.2.20/build/pdfmake.min.js');
+        if(!window.pdfMake?.vfs){await script('https://cdn.jsdelivr.net/npm/pdfmake@0.2.20/build/vfs_fonts.js');pzExportState.pdfFontsReady=true;}
+        if(!window.pdfMake?.createPdf)throw Error('PDF knihovna není dostupná.');
+      })();
+      try{await pzExportState.pdfLoading;}finally{pzExportState.pdfLoading=null;}
+    }
+    function pzPdfDefinition(c,tot,items,pc){
+      const green='#244d30',muted='#617167',light='#eef5ef';
+      const money=n=>fmtMoney(Number(n)||0);
+      const cell=(text,extra={})=>({text:String(text??''),margin:[0,4,0,4],...extra});
+      const body=[[cell('Položka',{bold:true,color:green}),cell('Množství',{bold:true,color:green}),cell('Cena bez DPH',{bold:true,color:green,alignment:'right'})]];
+      items.forEach((item,index)=>{
+        const calc=item.calc||{},p=pzWordPrice(item),delivery=item.type==='delivery';
+        const details=[];
+        if(delivery){details.push(PZTransport.itemDescription(item));if(item.street||item.city)details.push([item.street,item.postcode,item.city].filter(Boolean).join(', '));}
+        else{const description=descFor(calc);if(description)details.push(description);(calc.serviceRows||[]).forEach(row=>details.push(row.label));}
+        if(String(item.note||'').trim())details.push('Poznámka: '+String(item.note).trim());
+        if(p.pct){details.push('Cena před úpravou: '+money(p.original));details.push((p.mode==='surcharge'?'Přirážka: +':'Sleva: -')+pzWordCompactNum(p.pct,2)+' % ('+money(Math.abs(p.discount))+')');}
+        if(!delivery){const unit=pzWordUnit(item),unitPrice=unit==='m³'?Number(calc.totalPricePerM3||calc.unitPrice||0):Number(calc.unitPrice||0);details.push('Jednotková cena: '+money(unitPrice)+'/'+(unit==='m'?'bm':unit));}
+        const stack=[{text:(index+1)+'. '+(delivery?'Doprava':titleFor(item)),bold:true,color:green,margin:[0,0,0,4]},...details.map(text=>({text,fontSize:9,color:muted,margin:[0,0,0,3]}))];
+        body.push([{stack,margin:[0,6,0,6]},cell(delivery?pzWordCompactNum(item.km||0,2)+' km':pzWordQty([item])),cell(money(p.after),{alignment:'right',bold:true})]);
+      });
+      const contacts=[['Zákazník',c.name],['Telefon',c.phone],['Adresa',c.address],['Firma',c.company],['IČO',c.ico],['DIČ',c.dic],['E-mail',c.email]].filter(x=>x[1]);
+      const summary=[['Cena před úpravami',money(tot.original)],...(tot.discount>0?[['Celková sleva','- '+money(tot.discount)]]:[]),...(tot.surcharge>0?[['Celková přirážka','+ '+money(tot.surcharge)]]:[]),['Celkem bez DPH',money(tot.without)],['DPH 21 %',money(tot.vat)],['Celkem s DPH',money(tot.with)]];
+      return {pageSize:'A4',pageMargins:[38,42,38,45],defaultStyle:{font:'Roboto',fontSize:10,color:'#26392c'},info:{title:'Kalkulace KG/'+pc,author:'Pila Železnice'},content:[
+        {columns:[{stack:[{text:'PILA ŽELEZNICE',fontSize:20,bold:true,color:green},{text:'Souhrn kalkulace',fontSize:12,color:muted,margin:[0,5,0,0]}]},{stack:[{text:'KG/'+pc,bold:true,fontSize:14,alignment:'right'},{text:new Date().toLocaleDateString('cs-CZ'),alignment:'right',color:muted,margin:[0,5,0,0]}]}],margin:[0,0,0,20]},
+        ...(contacts.length?[{table:{widths:[65,'*'],body:contacts.map(([label,value])=>[{text:label,color:muted,fontSize:9},{text:value,bold:true}])},layout:'noBorders',margin:[0,0,0,18]}]:[]),
+        {table:{headerRows:1,widths:['*',70,95],body},layout:{hLineWidth:i=>i===1?1:.5,hLineColor:()=> '#d9e4dc',vLineWidth:()=>0,paddingLeft:()=>7,paddingRight:()=>7,paddingTop:()=>4,paddingBottom:()=>4,fillColor:i=>i===0?light:null}},
+        {unbreakable:true,margin:[0,18,0,0],columns:[{width:'*',text:'Celkový objem: '+fmtNum(tot.volume,3)+' m³',color:muted,fontSize:9},{width:265,table:{widths:['*','auto'],body:summary.map(([label,value],i)=>[cell(label,{bold:i>=summary.length-3,fillColor:i===summary.length-1?light:null}),cell(value,{alignment:'right',bold:i>=summary.length-3,color:label==='Celková sleva'?'#a52b2b':label==='Celková přirážka'?'#1766bc':green,fillColor:i===summary.length-1?light:null})])},layout:'noBorders'}]}
+      ],footer:(current,total)=>({text:current+' / '+total,alignment:'right',margin:[38,12,38,0],fontSize:8,color:muted})};
+    }
+    async function createPdfDocument(){
+      const btn=$('pz-pdf');if(!btn||btn.disabled)return;
+      const key=pzExportSignature(),c=getContactData(),tot=totals(),items=JSON.parse(JSON.stringify(state.cart));
+      if(!items.length){showToast('Nejdříve vytvořte kalkulaci.');return;}
+      btn.disabled=true;btn.textContent='Vytvářím PDF…';pzResetExport('pdf','Vytvářím PDF…');
+      try{
+        await pzEnsurePdfLibrary();
+        if(key!==pzExportSignature())throw Error('Kalkulace se změnila. Vytvořte PDF znovu.');
+        const pc=pzExportPcNumber(key),definition=pzPdfDefinition(c,tot,items,pc);
+        const blob=await new Promise((resolve,reject)=>{try{const doc=window.pdfMake.createPdf(definition).getStream(),chunks=[];doc.on('data',chunk=>chunks.push(chunk));doc.on('error',reject);doc.on('end',()=>resolve(new Blob(chunks,{type:'application/pdf'})));doc.end();}catch(error){reject(error);}});
+        if(key!==pzExportSignature())throw Error('Kalkulace se změnila. Vytvořte PDF znovu.');
+        const link=$('pz-pdf-download'),safe=(c.name||'zakaznik').replace(/[^a-zA-Z0-9á-žÁ-Ž_-]+/g,'_');
+        const url=URL.createObjectURL(blob);link.dataset.url=url;link.href=url;link.download='Pila_Zeleznice_KG-'+pc+'_'+safe+'.pdf';
+        link.onclick=e=>{if(pzExportState.pdf!==pzExportSignature()){e.preventDefault();pzInvalidateExportFiles();return;}showToast('PDF předáno prohlížeči ke stažení.');};
+        pzExportReady('pdf',key);showToast('PDF je připravené ke stažení.');
+      }catch(error){pzResetExport('pdf','PDF se nepodařilo vytvořit: '+(error?.message||String(error)));console.error('PDF:',error);}
+      finally{btn.disabled=false;btn.textContent='Vytvořit PDF';}
+    }
+
     async function createWordDocument(){
-      const btn=$("pz-word"),old=btn?.textContent||"Vytvořit dokument Word";if(btn){btn.disabled=true;btn.textContent="Vytvářím Word…";}
+      const btn=$("pz-word"),old="Vytvořit Word";if(btn?.disabled)return;
+      const exportKey=pzExportSignature();if(!state.cart.length){showToast("Nejdříve vytvořte kalkulaci.");return;}
+      pzResetExport('word','Vytvářím Word…');if(btn){btn.disabled=true;btn.textContent="Vytvářím Word…";}
       try{
         if(!window.JSZip)throw new Error("Knihovna pro Word se nenačetla.");
         const data=pzWordTemplateBase64();if(!data)throw new Error("Word šablona není dostupná.");
-        const c=getContactData(),pc=nextPcNumber(),tot=totals(),zip=await JSZip.loadAsync(data,{base64:true}),xml=new DOMParser().parseFromString(await zip.file("word/document.xml").async("string"),"application/xml");
+        const c=getContactData(),pc=pzExportPcNumber(exportKey),tot=totals(),zip=await JSZip.loadAsync(data,{base64:true}),xml=new DOMParser().parseFromString(await zip.file("word/document.xml").async("string"),"application/xml");
         if(xml.getElementsByTagName("parsererror").length)throw new Error("Word šablonu se nepodařilo načíst.");
         const WP="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing",a=[...xml.getElementsByTagNameNS(WP,"anchor")];
         const nameA=pzWordAnchor(a,"59167",750000,770000),phoneA=pzWordAnchor(a,"2312895",745000,765000);pzWordVerticalCenter(nameA);pzWordVerticalCenter(phoneA);
@@ -6165,7 +6267,7 @@ if(deliveryCollapsed) deliveryCollapsed.style.display = "flex";
           const subtotalText=`Mezi součet ${fmtNum(subtotalBeforeGlobal,0)},-`;
           const discountText=`${globalDiscount<0?"Přirážka +":"Sleva -"}${pzWordCompactNum(globalPct,2)} %     ${globalDiscount<0?"+":"-"}${fmtNum(Math.abs(globalDiscount),0)},-`;
           const alignedWidth=Math.max(subtotalText.length,discountText.length);
-          rows.push({text:" ",line:120},{text:subtotalText.padEnd(alignedWidth," "),align:"right",bold:true},{text:discountText.padEnd(alignedWidth," "),align:"right",color:discount<0?"1766BC":"C62828",bold:true});
+          rows.push({text:" ",line:120},{text:subtotalText.padEnd(alignedWidth," "),align:"right",bold:true},{text:discountText.padEnd(alignedWidth," "),align:"right",color:globalDiscount<0?"1766BC":"C62828",bold:true});
         }
         const wordRowCount=rows.reduce((n,r)=>n+Math.max(1,Math.ceil(String(r?.text||"").length/68)),0);
         let wordOrderFont=24;
@@ -6197,6 +6299,7 @@ if(deliveryCollapsed) deliveryCollapsed.style.display = "flex";
         })();
         const dataUrl=`data:${mime};base64,${base64}`;
 
+        if(exportKey!==pzExportSignature())throw Error("Kalkulace se změnila. Vytvořte Word znovu.");
         let link=$("pz-word-download");
         if(link?.dataset.url){try{URL.revokeObjectURL(link.dataset.url);}catch(_){}}
         if(!link){link=document.createElement("a");link.id="pz-word-download";link.className="pz-word-download-link";btn?.insertAdjacentElement("afterend",link);}
@@ -6205,7 +6308,7 @@ if(deliveryCollapsed) deliveryCollapsed.style.display = "flex";
         link.download=fileName;
         link.removeAttribute("target");
         link.removeAttribute("rel");
-        link.textContent="Stáhnout dokument Word";
+        link.textContent="Stáhnout Word";
 
         /*
           Android aplikace (WebView): hotový DOCX předáme nativnímu AndroidWordBridge.
@@ -6213,6 +6316,7 @@ if(deliveryCollapsed) deliveryCollapsed.style.display = "flex";
           V běžném prohlížeči zůstává původní fallback přes odkaz / Save File Picker.
         */
         const handleWordDownload=async function(ev){
+          if(pzExportState.word!==pzExportSignature()){ev.preventDefault();pzInvalidateExportFiles();return;}
           if(window.AndroidWord && typeof window.AndroidWord.saveWordFile === "function"){
             ev.preventDefault();
             try{
@@ -6248,8 +6352,9 @@ if(deliveryCollapsed) deliveryCollapsed.style.display = "flex";
           showToast("Spouštím stažení dokumentu Word…");
         };
         link.onclick=handleWordDownload;
+        pzExportReady('word',exportKey);
         showToast("Dokument Word je připravený ke stažení.");
-      }catch(err){console.error("Word:",err);alert("Word dokument se nepodařilo vytvořit. Důvod: "+(err?.message||String(err)));}finally{if(btn){btn.disabled=false;btn.textContent=old;}}
+      }catch(err){pzResetExport('word','Word se nepodařilo vytvořit: '+(err?.message||String(err)));console.error("Word:",err);alert("Word dokument se nepodařilo vytvořit. Důvod: "+(err?.message||String(err)));}finally{if(btn){btn.disabled=false;btn.textContent=old;}}
     }
 
     function renderAll(){
@@ -6281,6 +6386,9 @@ if(deliveryCollapsed) deliveryCollapsed.style.display = "flex";
     $("pz-open-cart").onclick = openCart;
     $("pz-close-cart").onclick = closeCart;
     if($("pz-word")) $("pz-word").onclick = createWordDocument;
+    if($("pz-pdf")) $("pz-pdf").onclick = createPdfDocument;
+    for(const format of ['word','pdf'])pzResetExport(format);
+    for(const type of ['input','change'])document.addEventListener(type,()=>queueMicrotask(pzInvalidateExportFiles));
     const clearBtn=$("pz-clear-cart"),clearModal=$("pz-clear-confirm"),clearCancel=$("pz-clear-cancel"),clearOk=$("pz-clear-ok");
     const closeClear=()=>{clearModal?.classList.remove("open");clearModal?.setAttribute("aria-hidden","true");};
     clearBtn?.addEventListener("click",()=>{clearModal?.classList.add("open");clearModal?.setAttribute("aria-hidden","false");});
@@ -7117,6 +7225,7 @@ html.pz-dark #pz-library-content .pz-s10-clear:hover,html.pz-dark #pz-library-co
   #pz-app .pz-sync-status-text.show {position:absolute!important;right:0!important;bottom:calc(100% + 8px)!important;z-index:5!important;max-width:min(260px,calc(100vw - 32px))!important;white-space:normal!important;text-align:center!important;box-shadow:0 3px 12px rgba(0,0,0,.12)!important}
 }
 </style>
+
 
 
 
