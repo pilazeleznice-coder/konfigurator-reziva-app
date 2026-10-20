@@ -6537,18 +6537,29 @@ window.pzSetSyncStatus=function(status){const b=document.getElementById("pz-sync
     function pzId(){return "calc_"+Date.now().toString(36)+Math.random().toString(36).slice(2,8)}
     function pzInputsSnapshot(){const out={};document.querySelectorAll('#pz-app input[id],#pz-app select[id],#pz-app textarea[id]').forEach(el=>{if(el.id.startsWith('pz-library-'))return;out[el.id]=el.type==='checkbox'?el.checked:el.value});return out}
     function pzHasDeliveryContent(){
-      const ids=["pz-delivery-street","pz-delivery-city","pz-delivery-postcode","pz-delivery-km","pz-delivery-price","pz-delivery-manual-note"];
+      if(state.cart.some(i=>i.type==="delivery"))return true;
+      // Only actual form content counts: hidden km=0 and price/status labels do not.
+      const ids=["pz-delivery-street","pz-delivery-city","pz-delivery-postcode"];
       if(ids.some(id=>String($(id)?.value||"").trim()!==""))return true;
-      return !!state.cart.some(i=>i.type==="delivery");
+      return pzDeliveryTouched&&(
+        Number($("pz-delivery-rate")?.value)>0||
+        Number($("pz-delivery-discount")?.value)>0||
+        String($("pz-delivery-type")?.value||"").trim()!==""
+      );
     }
-    function pzHasWork(){const c=getContactData();return state.cart.length>0||Object.values(c).some(Boolean)||pzHasDeliveryContent()}
+    function pzHasWork(){
+      if(state.cart.length>0)return true;
+      const c=getContactData();
+      const contact=[c.name,c.address,c.company,c.ico,c.dic,c.email,$("pz-contact-phone")?.value];
+      return contact.some(value=>String(value||"").trim()!=="")||pzHasDeliveryContent();
+    }
     function pzNextKgNumber(rows){const nums=(rows||[]).map(r=>String(r.kgNumber||"").match(/^KG\/(\d+)$/i)).filter(Boolean).map(m=>Number(m[1])).filter(Number.isFinite);const n=(nums.length?Math.max(...nums):0)+1;return `KG/${String(n).padStart(3,"0")}`}
     function pzRemoveEmptyActiveDraft(){if(!pzActiveDraftId)return false;const rows=pzRecords(),i=rows.findIndex(r=>r.id===pzActiveDraftId);if(i<0||rows[i].type!=="draft")return false;const id=pzActiveDraftId,now=Date.now(),tomb={id,type:PZ_TOMBSTONE_TYPE,updatedAt:now,deletedAt:now};rows.splice(i,1);localStorage.setItem(PZ_RECORDS_KEY,JSON.stringify(rows));const ts=pzLocalTombstones().filter(r=>r.id!==id);ts.unshift(tomb);pzSetLocalTombstones(ts);pzUpdateCounts();pzCloudSaveRecord(tomb);pzActiveDraftId=null;pzOpenedRecord=null;pzDirty=false;pzUpdateLoadedBar();window.pzRenderLibrary?.();return true}
     function pzSnapshot(){return {version:2,state:{material:state.material,product:state.product,values:pzDeep(state.values),services:pzDeep(state.services),cart:pzDeep(getStableCartForStorage()),selectedAddress:state.selectedAddress||'',manualUnitPrice:state.manualUnitPrice,priceOverridden:!!state.priceOverridden,itemDiscount:Number(state.itemDiscount)||0,itemAdjustmentMode:state.itemAdjustmentMode,globalAdjustmentMode:state.globalAdjustmentMode,deliveryAdjustmentMode:state.deliveryAdjustmentMode,globalDiscount:Number(state.globalDiscount)||0,deliveryTouched:!!pzDeliveryTouched},inputs:pzInputsSnapshot()}}
     function pzMeta(){const c=getContactData(),t=totals();return {customer:c.name||c.company||'Bez názvu',phone:c.phone||'',address:c.address||'',company:c.company||'',email:c.email||'',total:Number(t.with)||0,itemCount:state.cart.filter(i=>i.type!=='delivery').length}}
     function pzSnapshotKey(s){try{return JSON.stringify(s||{})}catch(_){return ''}}
     function pzOpenedHasChanges(){return !!pzOpenedRecord&&pzSnapshotKey(pzSnapshot())!==pzSnapshotKey(pzOpenedRecord.original?.snapshot)}
-    function pzSaveActiveDraft(){if(pzSuppressAutosave)return;if(!pzHasWork()){pzRemoveEmptyActiveDraft();return}if(pzOpenedRecord?.type==='archive'&&!pzOpenedHasChanges())return;const now=Date.now(),rows=pzRecords();if(!pzActiveDraftId)pzActiveDraftId=pzId();const existing=rows.find(r=>r.id===pzActiveDraftId);const keepArchive=pzOpenedRecord?.type==='archive'||existing?.type==='archive';const rec={id:pzActiveDraftId,type:keepArchive?'archive':'draft',createdAt:existing?.createdAt||now,updatedAt:now,...(keepArchive?{archivedAt:existing?.archivedAt||pzOpenedRecord?.original?.archivedAt||now}:{}),...pzMeta(),snapshot:pzSnapshot()};const i=rows.findIndex(r=>r.id===pzActiveDraftId);if(i>=0)rows[i]=rec;else rows.unshift(rec);pzWriteRecords(rows)}
+    function pzSaveActiveDraft(){if(pzSuppressAutosave)return;if(!pzHasWork()){if(pzDirty)pzRemoveEmptyActiveDraft();return}if(pzOpenedRecord?.type==='archive'&&!pzOpenedHasChanges())return;const now=Date.now(),rows=pzRecords();if(!pzActiveDraftId)pzActiveDraftId=pzId();const existing=rows.find(r=>r.id===pzActiveDraftId);const keepArchive=pzOpenedRecord?.type==='archive'||existing?.type==='archive';const rec={id:pzActiveDraftId,type:keepArchive?'archive':'draft',createdAt:existing?.createdAt||now,updatedAt:now,...(keepArchive?{archivedAt:existing?.archivedAt||pzOpenedRecord?.original?.archivedAt||now}:{}),...pzMeta(),snapshot:pzSnapshot()};const i=rows.findIndex(r=>r.id===pzActiveDraftId);if(i>=0)rows[i]=rec;else rows.unshift(rec);pzWriteRecords(rows)}
     function pzQueueAutosave(){if(pzSuppressAutosave)return;clearTimeout(pzAutosaveTimer);pzAutosaveTimer=setTimeout(pzSaveActiveDraft,350)}
     function pzApplyInputs(inputs){pzSuppressAutosave=true;Object.entries(inputs||{}).forEach(([id,v])=>{const el=$(id);if(!el)return;if(el.type==='checkbox')el.checked=!!v;else el.value=v??'';el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}))});pzSuppressAutosave=false}
     function pzUpdateLoadedBar(){const bar=$('pz-loaded-bar');if(!bar)return;if(!pzOpenedRecord){bar.classList.remove('open');return}bar.classList.add('open');$('pz-loaded-title').textContent=pzOpenedRecord.type==='archive'?'Otevřeno z Archivu':'Otevřený koncept';$('pz-loaded-sub').textContent=pzOpenedRecord.customer||'Bez názvu'}
@@ -6608,7 +6619,7 @@ window.pzSetSyncStatus=function(status){const b=document.getElementById("pz-sync
     $('pz-leave-discard')?.addEventListener('click',pzLeaveDiscard);
     $('pz-leave-stay')?.addEventListener('click',pzHideLeaveDialog);
     $('pz-leave-dialog')?.addEventListener('click',e=>{if(e.target===$('pz-leave-dialog'))pzHideLeaveDialog()});
-    const pzMeaningfulEvent=e=>{if(!e.target.closest('#pz-app')||e.target.closest('#pz-library')||e.target.closest('#pz-nav-overlay'))return false;if(e.target.closest('#pz-contact-section'))return true;if(e.target.closest('#pz-delivery-section')){pzDeliveryTouched=true;return true}return !!pzActiveDraftId||state.cart.length>0;};
+    const pzMeaningfulEvent=e=>{if(pzSuppressAutosave)return false;if(!e.target.closest('#pz-app')||e.target.closest('#pz-library')||e.target.closest('#pz-nav-overlay'))return false;if(e.target.closest('#pz-contact-section'))return true;if(e.target.closest('#pz-delivery-section')){pzDeliveryTouched=true;return true}return !!pzActiveDraftId||state.cart.length>0;};
     document.addEventListener('input',e=>{if(pzMeaningfulEvent(e)){pzDirty=true;pzQueueAutosave()}},true);
     document.addEventListener('change',e=>{if(pzMeaningfulEvent(e)){pzDirty=true;pzQueueAutosave()}},true);
     document.addEventListener('click',e=>{if(pzMeaningfulEvent(e))setTimeout(pzQueueAutosave,50)},true);
