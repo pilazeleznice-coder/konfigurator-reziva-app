@@ -6917,7 +6917,7 @@ html.pz-dark #pz-library-content .pz-s10-clear:hover,html.pz-dark #pz-library-co
   const old=host.innerHTML;
   const rows=validRows(localRows());
   const draft=rows.filter(r=>r.type==='draft').length,archive=rows.filter(r=>r.type==='archive').length;
-  host.innerHTML=`<div class="pz-s10-panel"><button type="button" class="pz-s9-back" id="pz-s10-back">← Zpět do Nastavení</button><section class="pz-s10-card"><div class="pz-s10-cardhead"><span class="pz-s10-icon" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 17v3h16v-3"/></svg></span><div><h3>Vytvořit zálohu</h3><p>Uložit Koncepty a Archiv do jednoho souboru</p></div></div><div class="pz-s10-counts"><div><span>Koncepty</span><strong>${draft}</strong></div><div><span>Archiv</span><strong>${archive}</strong></div><div class="pz-s10-total"><span>Celkem</span><strong>${draft+archive}</strong></div></div><button type="button" class="pz-s10-download" id="pz-s10-export"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 17v3h16v-3"/></svg> Stáhnout úplnou zálohu (cloud + zařízení)</button><a class="pz-s10-download" id="pz-s10-export-local" href="#" style="display:inline-block;text-decoration:none;margin-top:10px;background:#e7f1e9;color:#104c29;border:1px solid #a7c5ad">Stáhnout místní zálohu (bez internetu)</a><button type="button" id="pz-s10-api-diagnostic" style="display:block;margin-top:12px;padding:10px;border:1px solid #a7c5ad;border-radius:8px;background:#fff;color:#104c29">TEST 10S – ověřit možnosti ukládání</button><button type="button" id="pz-s10-picker-diagnostic" style="display:block;margin-top:10px;padding:10px;border:1px solid #a7c5ad;border-radius:8px;background:#fff;color:#104c29">TEST 10T – otevřít Uložit jako</button><div class="pz-s10-status" id="pz-s10-status" role="status"></div></section><section class="pz-s10-card"><div class="pz-s10-cardhead"><span class="pz-s10-icon" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17v3h16v-3M12 16V4m-5 5 5-5 5 5"/></svg></span><div><h3>Obnovit ze zálohy</h3><p>Vybrat a zkontrolovat uloženou zálohu</p></div></div><div class="pz-s10-selected"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6v20h12V6zM14 2v4h4M9 13h6m-6 4h6"/></svg><span><strong id="pz-s10-filename">Soubor zatím nevybrán</strong><small>Podporovaný formát: .json</small></span><button type="button" id="pz-s10-clear" class="pz-s10-clear" aria-label="Zrušit vybraný soubor" title="Zrušit výběr souboru" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div><label class="pz-s10-filebutton" for="pz-s10-import"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h7l2 2h9v11H3zM3 6v13M8 14h8"/></svg> Vybrat zálohu</label><input type="file" id="pz-s10-import" accept=".json,application/json" aria-label="Vybrat záložní soubor JSON"><div id="pz-s10-preview" class="pz-s10-status pz-s10-preview" role="status" aria-live="polite">Zatím nebyl vybrán soubor.</div><p class="pz-s10-safe">TEST 10J: Bezpečný test načtení zálohy. Žádná data se neobnovují, nepřepisují ani neposílají do Supabase.</p></section></div>`;
+  host.innerHTML=`<div class="pz-s10-panel"><button type="button" class="pz-s9-back" id="pz-s10-back">← Zpět do Nastavení</button><section class="pz-s10-card"><div class="pz-s10-cardhead"><span class="pz-s10-icon" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 17v3h16v-3"/></svg></span><div><h3>Vytvořit zálohu</h3><p>Uložit Koncepty a Archiv do jednoho souboru</p></div></div><div class="pz-s10-counts"><div><span>Koncepty</span><strong>${draft}</strong></div><div><span>Archiv</span><strong>${archive}</strong></div><div class="pz-s10-total"><span>Celkem</span><strong>${draft+archive}</strong></div></div><button type="button" class="pz-s10-download" id="pz-s10-export"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 17v3h16v-3"/></svg> Stáhnout úplnou zálohu (cloud + zařízení)</button><a class="pz-s10-download" id="pz-s10-export-local" href="#" style="display:inline-block;text-decoration:none;margin-top:10px;background:#e7f1e9;color:#104c29;border:1px solid #a7c5ad">Stáhnout místní zálohu (bez internetu) – TEST 10N</a><button type="button" id="pz-s10-api-diagnostic" style="display:block;margin-top:12px;padding:10px;border:1px solid #a7c5ad;border-radius:8px;background:#fff;color:#104c29">TEST 10S – ověřit možnosti ukládání</button><button type="button" id="pz-s10-picker-diagnostic" style="display:block;margin-top:10px;padding:10px;border:1px solid #a7c5ad;border-radius:8px;background:#fff;color:#104c29">TEST 10T – otevřít Uložit jako</button><div class="pz-s10-status" id="pz-s10-status" role="status"></div></section><section class="pz-s10-card"><div class="pz-s10-cardhead"><span class="pz-s10-icon" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17v3h16v-3M12 16V4m-5 5 5-5 5 5"/></svg></span><div><h3>Obnovit ze zálohy</h3><p>Vybrat a zkontrolovat uloženou zálohu</p></div></div><div class="pz-s10-selected"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6v20h12V6zM14 2v4h4M9 13h6m-6 4h6"/></svg><span><strong id="pz-s10-filename">Soubor zatím nevybrán</strong><small>Podporovaný formát: .json</small></span><button type="button" id="pz-s10-clear" class="pz-s10-clear" aria-label="Zrušit vybraný soubor" title="Zrušit výběr souboru" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div><label class="pz-s10-filebutton" for="pz-s10-import"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h7l2 2h9v11H3zM3 6v13M8 14h8"/></svg> Vybrat zálohu</label><input type="file" id="pz-s10-import" accept=".json,application/json" aria-label="Vybrat záložní soubor JSON"><div id="pz-s10-preview" class="pz-s10-status pz-s10-preview" role="status" aria-live="polite">Zatím nebyl vybrán soubor.</div><p class="pz-s10-safe">TEST 10J: Bezpečný test načtení zálohy. Žádná data se neobnovují, nepřepisují ani neposílají do Supabase.</p></section></div>`;
   $('pz-s10-back').onclick=()=>{host.innerHTML=old;window.pzSettingsRefresh?.()};
   $('pz-s10-export').onclick=exportBackup;
   $('pz-s10-export-local').onclick=exportLocalBackup;
@@ -7008,58 +7008,59 @@ html.pz-dark #pz-library-content .pz-s10-clear:hover,html.pz-dark #pz-library-co
    '; Samostatná PWA '+(standalone?'ANO':'NE')+
    '. Nic se nestahuje ani nemění.';
  }
+ // TEST 10N: save from the real tap; never write calculation storage.
+ let localBackupBusy=false,localBackupUseDownload=false;
  async function exportLocalBackup(event){
-  event.preventDefault();
   const link=event.currentTarget,status=$('pz-s10-status');
-  if(!link||!status)return;
+  if(!link||!status){event.preventDefault();return;}
+  if(localBackupBusy){event.preventDefault();return;}
+  let stage='načtení místních kalkulací';
   try{
-   const rows=validRows(localRows());
-   if(!rows.length){status.textContent='Místní záloha je prázdná – nebyly nalezeny žádné místní kalkulace.';return;}
-   const payload={format:'PilaZelezniceBackup',version:1,createdAt:new Date().toISOString(),scope:'local-only',records:rows};
+   // Read strictly: a damaged store must not silently become an empty backup.
+   const stored=JSON.parse(localStorage.getItem('pzCalculationRecordsV1')||'[]');
+   if(!Array.isArray(stored))throw Error('Místní úložiště nemá očekávaný formát.');
+   const rows=validRows(stored);
+   if(!rows.length){event.preventDefault();status.textContent='TEST 10N: Nebyly nalezeny žádné místní kalkulace. Soubor nebyl uložen.';return;}
+   const now=new Date();
+   const payload={format:'PilaZelezniceBackup',version:1,createdAt:now.toISOString(),scope:'local-only',records:rows};
    const json=JSON.stringify(payload,null,2);
-   const d=new Date(),stamp=[d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');
+   const stamp=[now.getFullYear(),String(now.getMonth()+1).padStart(2,'0'),String(now.getDate()).padStart(2,'0')].join('-');
    const filename='Pila_Zeleznice_MISTNI_Zaloha_'+stamp+'.json';
-   if(!('serviceWorker' in navigator))throw Error('Service Worker není v tomto prostředí podporován.');
-   let controller=navigator.serviceWorker.controller;
-   if(!controller){
-    status.textContent='TEST 10P: Registruji službu pro bezpečné stažení…';
-    const registration=await navigator.serviceWorker.register('./service-worker.js',{scope:'./'});
-    await navigator.serviceWorker.ready;
-    if(!navigator.serviceWorker.controller){
-     await new Promise((resolve,reject)=>{
-      const timer=setTimeout(()=>{navigator.serviceWorker.removeEventListener('controllerchange',changed);reject(Error('Service Worker se nespustil jako řídicí služba (controllerchange timeout).'));},12000);
-      function changed(){if(navigator.serviceWorker.controller){clearTimeout(timer);navigator.serviceWorker.removeEventListener('controllerchange',changed);resolve();}}
-      navigator.serviceWorker.addEventListener('controllerchange',changed);
-      changed();
-     });
-    }
-    controller=navigator.serviceWorker.controller;
+   if(!localBackupUseDownload&&typeof window.showSaveFilePicker==='function'){
+    event.preventDefault();
+    localBackupBusy=true;
+    stage='otevření dialogu Uložit jako';
+    // No asynchronous preparation before this call: preserve the tap activation.
+    const pending=window.showSaveFilePicker({suggestedName:filename,types:[{description:'Záloha kalkulací JSON',accept:{'application/json':['.json']}}]});
+    status.textContent='TEST 10N: Čekám na výběr souboru ('+rows.length+' kalkulací)…';
+    const handle=await pending;
+    stage='otevření souboru pro zápis';
+    const writable=await handle.createWritable();
+    let closed=false;
+    try{
+     stage='zápis souboru';
+     await writable.write(json);
+     stage='dokončení zápisu';
+     await writable.close();closed=true;
+    }finally{if(!closed){try{await writable.abort();}catch(_){}}}
+    stage='ověření uloženého souboru';
+    const saved=await handle.getFile();
+    if(await saved.text()!==json)throw Error('Obsah uloženého souboru neodpovídá připravené záloze.');
+    status.textContent='TEST 10N: Soubor '+saved.name+' byl zapsán a znovu přečten. Ověřeno '+rows.length+' kalkulací.';
+   }else{
+    stage='předání přímého odkazu ke stažení';
+    const url=URL.createObjectURL(new Blob([json],{type:'application/json;charset=utf-8'}));
+    link.href=url;link.download=filename;
+    // Let THIS trusted anchor click perform its default download. No a.click(),
+    // navigation to another origin, service worker, network request or await.
+    setTimeout(()=>{URL.revokeObjectURL(url);if(link.getAttribute('href')===url){link.href='#';link.removeAttribute('download');}},300000);
+    status.textContent='TEST 10N: Prohlížeči byl předán soubor '+filename+' ('+rows.length+' kalkulací). Uložení zatím není potvrzené – ověřte soubor v telefonu ve Stažených.';
    }
-   if(!controller)throw Error('Service Worker není aktivní ani po registraci.');
-   const id=Date.now()+'-'+Math.random().toString(36).slice(2);
-   const channel=new MessageChannel();
-   const result=await new Promise((resolve,reject)=>{
-    const timeout=setTimeout(()=>reject(Error('Service Worker neodpověděl do 10 sekund.')),10000);
-    channel.port1.onmessage=e=>{clearTimeout(timeout);resolve(e.data)};
-    controller.postMessage({type:'PZ_BACKUP_PREPARE_10O',id,json,filename},[channel.port2]);
-   });
-   if(!result?.ok)throw Error((result?.name||'Error')+': '+(result?.message||'Příprava selhala'));
-   const downloadPath='./__pz_local_backup_download__?id='+encodeURIComponent(id);
-   // TEST 10R: Navigate directly to the verified HTTP attachment on the next real tap.
-   const response=await fetch(downloadPath,{cache:'no-store'});
-   const disposition=response.headers.get('Content-Disposition')||'';
-   const returned=await response.text();
-   if(!response.ok || !disposition.toLowerCase().includes('attachment') || returned!==json)
-    throw Error('HTTP příloha neprošla ověřením: '+response.status);
-   link.removeAttribute('download');
-   link.href=downloadPath;
-   link.onclick=null;
-   status.textContent='TEST 10R: JSON ověřen ('+rows.length+' kalkulací). Klepněte PODRUHÉ pro otevření HTTP přílohy.';
-   link.addEventListener('click',function(){
-    status.textContent='TEST 10R: Otevření přílohy vyvoláno; skutečné uložení ověřte v telefonu.';
-    setTimeout(()=>{link.href='#';link.onclick=exportLocalBackup},120000);
-   },{once:true});
-  }catch(err){status.textContent='TEST 10O: '+(err?.name||'Error')+': '+(err?.message||String(err));}
+  }catch(err){
+   event.preventDefault();
+   localBackupUseDownload=true;
+   status.textContent='TEST 10N – '+stage+': '+(err?.name||'Error')+': '+(err?.message||String(err))+'. Uložení není potvrzené. Další klepnutí na místní zálohu použije přímé stažení. Kalkulace zůstaly beze změny.';
+  }finally{localBackupBusy=false;}
  }
  async function exportBackup(){
   const button=$('pz-s10-export'),status=$('pz-s10-status');if(!button||!status)return;
