@@ -6214,10 +6214,11 @@ if(deliveryCollapsed) deliveryCollapsed.style.display = "flex";
     }
     async function createPdfDocument(){
       const btn=$('pz-pdf');if(!btn||btn.disabled)return;
-      const key=pzExportSignature(),c=getContactData(),tot=totals(),items=JSON.parse(JSON.stringify(state.cart));
-      if(!items.length){showToast('Nejdříve vytvořte kalkulaci.');return;}
-      btn.disabled=true;btn.textContent='Vytvářím PDF…';pzResetExport('pdf','Vytvářím PDF…');
       try{
+        pzResetExport('pdf','Kontroluji kalkulaci…');
+        const key=pzExportSignature(),c=getContactData(),tot=totals(),items=JSON.parse(JSON.stringify(state.cart));
+        if(!items.length){$('pz-pdf-status').textContent='Nejdříve přidejte alespoň jednu položku do kalkulace.';return;}
+        btn.disabled=true;btn.textContent='Vytvářím PDF…';$('pz-pdf-status').textContent='Vytvářím PDF…';
         await pzEnsurePdfLibrary();
         if(key!==pzExportSignature())throw Error('Kalkulace se změnila. Vytvořte PDF znovu.');
         const pc=pzExportPcNumber(key),definition=pzPdfDefinition(c,tot,items,pc);
@@ -6233,9 +6234,11 @@ if(deliveryCollapsed) deliveryCollapsed.style.display = "flex";
 
     async function createWordDocument(){
       const btn=$("pz-word"),old="Vytvořit Word";if(btn?.disabled)return;
-      const exportKey=pzExportSignature();if(!state.cart.length){showToast("Nejdříve vytvořte kalkulaci.");return;}
-      pzResetExport('word','Vytvářím Word…');if(btn){btn.disabled=true;btn.textContent="Vytvářím Word…";}
       try{
+        pzResetExport('word','Kontroluji kalkulaci…');
+        const exportKey=pzExportSignature();
+        if(!state.cart.length){$('pz-word-status').textContent='Nejdříve přidejte alespoň jednu položku do kalkulace.';return;}
+        if(btn){btn.disabled=true;btn.textContent="Vytvářím Word…";}$('pz-word-status').textContent='Vytvářím Word…';
         if(!window.JSZip)throw new Error("Knihovna pro Word se nenačetla.");
         const data=pzWordTemplateBase64();if(!data)throw new Error("Word šablona není dostupná.");
         const c=getContactData(),pc=pzExportPcNumber(exportKey),tot=totals(),zip=await JSZip.loadAsync(data,{base64:true}),xml=new DOMParser().parseFromString(await zip.file("word/document.xml").async("string"),"application/xml");
@@ -6385,8 +6388,13 @@ if(deliveryCollapsed) deliveryCollapsed.style.display = "flex";
     };
     $("pz-open-cart").onclick = openCart;
     $("pz-close-cart").onclick = closeCart;
-    if($("pz-word")) $("pz-word").onclick = createWordDocument;
-    if($("pz-pdf")) $("pz-pdf").onclick = createPdfDocument;
+    // Delegate clicks so export controls also work if their DOM is refreshed.
+    document.addEventListener('click',function(event){
+      const button=event.target.closest?.('#pz-word,#pz-pdf');
+      if(!button||button.disabled)return;
+      event.preventDefault();
+      if(button.id==='pz-word')createWordDocument();else createPdfDocument();
+    },true);
     for(const format of ['word','pdf'])pzResetExport(format);
     for(const type of ['input','change'])document.addEventListener(type,()=>queueMicrotask(pzInvalidateExportFiles));
     const clearBtn=$("pz-clear-cart"),clearModal=$("pz-clear-confirm"),clearCancel=$("pz-clear-cancel"),clearOk=$("pz-clear-ok");
