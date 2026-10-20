@@ -3290,6 +3290,31 @@ visibility: hidden;
     <button class="pz-nav-item" data-library="trash" type="button"><span class="pz-nav-icon"><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"/></svg></span><span class="pz-nav-text"><strong>Koš</strong><span>Smazané kalkulace</span></span><span class="pz-nav-count" id="pz-trash-count">0</span></button>
     <button class="pz-nav-item" data-library="settings" type="button"><span class="pz-nav-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.4-2.4 1A7 7 0 0 0 15 6l-.3-2.6h-4L10.4 6A7 7 0 0 0 8.5 7L6.1 6 4 9.5 6.1 11a7 7 0 0 0 0 2L4 14.5 6.1 18l2.4-1a7 7 0 0 0 1.9 1l.3 2.6h4L15 18a7 7 0 0 0 1.5-1l2.4 1 2-3.5-2-1.5a7 7 0 0 0 .1-1z"/></svg></span><span class="pz-nav-text"><strong>Nastavení</strong><span>Nastavení aplikace</span></span></button>
   </div></aside></div>
+<style id="pz-archive-compact-style">
+#pz-library{--pz-green:#2f5f3a;--pz-green-dark:#1f4328;--pz-green-soft:#eef6f0;--pz-card:#fff;--pz-border:#d9e5dc;--pz-text:#1e2a22;--pz-muted:#66736a;--pz-danger:#b42318}
+html.pz-dark #pz-library{--pz-green:#86bb95;--pz-green-dark:#c8e8d0;--pz-green-soft:#223a2b;--pz-card:#1c2a21;--pz-border:#35483b;--pz-text:#edf5ef;--pz-muted:#b5c4b9;--pz-danger:#efaaaa}
+#pz-library .pz-record.pz-archive-compact{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:7px 20px;width:100%;padding:13px 18px;border-radius:14px}
+#pz-library .pz-archive-compact svg{width:17px!important;height:17px!important;max-width:17px;max-height:17px;flex:0 0 17px;color:var(--pz-green-dark)}
+#pz-library .pz-ac-heading{grid-column:1;grid-row:1;display:flex;align-items:center;flex-wrap:wrap;gap:6px 12px;min-width:0}
+#pz-library .pz-ac-name{font-size:17px;color:var(--pz-green-dark);overflow-wrap:anywhere}
+#pz-library .pz-ac-date{font-size:12px;color:var(--pz-muted)}
+#pz-library .pz-ac-status,#pz-library .pz-ac-kg{display:inline-flex;align-items:center;gap:4px;background:var(--pz-green-soft);color:var(--pz-green-dark);font-size:11px;padding:3px 6px;border-radius:6px}
+#pz-library .pz-ac-status svg{width:12px;height:12px}
+#pz-library .pz-ac-price{grid-column:2;grid-row:1;text-align:right;white-space:nowrap;color:var(--pz-green-dark)}
+#pz-library .pz-ac-price strong{font-size:19px}#pz-library .pz-ac-price small{font-size:11px;font-weight:400;margin-left:5px;color:var(--pz-muted)}
+#pz-library .pz-ac-details{grid-column:1;grid-row:2;display:flex;flex-wrap:wrap;gap:6px 18px;color:var(--pz-muted);font-size:13px;min-width:0}
+#pz-library .pz-ac-details>span,#pz-library .pz-ac-count{display:flex;align-items:center;gap:7px;overflow-wrap:anywhere;min-width:0}
+#pz-library .pz-ac-count{grid-column:1;grid-row:3;font-size:12px;color:var(--pz-muted)}
+#pz-library .pz-ac-actions{grid-column:2;grid-row:2/4;display:flex;align-items:center;justify-content:flex-end;gap:8px}
+#pz-library .pz-ac-actions button{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:44px;border:1px solid var(--pz-border);border-radius:9px;padding:8px 11px;font-family:inherit;font-size:12px;cursor:pointer}
+#pz-library .pz-ac-open{background:var(--pz-green-soft);color:var(--pz-green-dark);font-weight:700}
+#pz-library .pz-ac-trash{background:var(--pz-card);color:var(--pz-danger);min-width:44px}
+#pz-library .pz-ac-actions button:focus-visible{outline:2px solid var(--pz-green);outline-offset:3px}
+#pz-library .pz-archive-compact .pz-archive-item-notes{grid-column:1/-1;grid-row:auto}
+html.pz-dark #pz-library .pz-ac-name,html.pz-dark #pz-library .pz-ac-price{color:var(--pz-text)}
+html.pz-dark #pz-library .pz-ac-status,html.pz-dark #pz-library .pz-ac-kg,html.pz-dark #pz-library .pz-ac-open{background:#304c39;color:#dbf0df}
+@media(max-width:550px){#pz-library .pz-record.pz-archive-compact{padding:12px;gap:8px 12px}#pz-library .pz-ac-details{grid-column:1/-1}#pz-library .pz-ac-actions{grid-row:3}#pz-library .pz-ac-price small{display:block;margin:2px 0 0}#pz-library .pz-ac-status{display:none}}
+</style>
   <section class="pz-library" id="pz-library" aria-hidden="true"><div class="pz-library-shell"><div class="pz-library-head"><button class="pz-icon-btn" id="pz-library-close" type="button" aria-label="Zpět">‹</button><div><h2 id="pz-library-title">Koncepty</h2><div class="pz-library-sub" id="pz-library-sub"></div></div></div><div id="pz-library-content"></div></div></section>
 
   <div class="pz-leave-dialog" id="pz-leave-dialog" aria-hidden="true"><div class="pz-leave-box"><h3>Opustit otevřenou kalkulaci?</h3><p>Co chcete udělat s aktuálními změnami?</p><div class="pz-leave-actions"><button class="pz-leave-save" id="pz-leave-save" type="button">Uložit změny do Konceptů</button><button class="pz-leave-discard" id="pz-leave-discard" type="button">Zahodit změny</button><button class="pz-leave-stay" id="pz-leave-stay" type="button">Zůstat v kalkulaci</button></div></div></div>
@@ -6373,7 +6398,7 @@ window.pzSetSyncStatus=function(status){const b=document.getElementById("pz-sync
       return `<div class="pz-record-cell pz-archive-item-notes">${items.map((item,index)=>`<div><strong>${pzEsc(titleFor(item))}</strong><span><b>Poznámka:</b> ${pzEsc(String(item.note).trim())}</span></div>`).join("")}</div>`;
     }
     function pzArchiveCompactHtml(r){
-      const icon=name=>{const paths={phone:'<path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6 19.8 19.8 0 0 1-3.1-8.7A2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .3 1.9.7 2.8a2 2 0 0 1-.5 2.1L8 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.5c.9.4 1.8.6 2.8.7a2 2 0 0 1 1.8 2.1z"/>',pin:'<path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 1 1 16 0z"/><circle cx="12" cy="10" r="2.5"/>',layers:'<path d="m12 3 10 5-10 5L2 8zM2 12l10 5 10-5M2 16l10 5 10-5"/>',file:'<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M8 13h8M8 17h6"/>',trash:'<path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7"/>',check:'<path d="m5 12 4 4L19 6"/>'};return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+paths[name]+'</svg>'};
+      const icon=name=>{const paths={phone:'<path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6 19.8 19.8 0 0 1-3.1-8.7A2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .3 1.9.7 2.8a2 2 0 0 1-.5 2.1L8 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.5c.9.4 1.8.6 2.8.7a2 2 0 0 1 1.8 2.1z"/>',pin:'<path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 1 1 16 0z"/><circle cx="12" cy="10" r="2.5"/>',layers:'<path d="m12 3 10 5-10 5L2 8zM2 12l10 5 10-5M2 16l10 5 10-5"/>',file:'<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M8 13h8M8 17h6"/>',trash:'<path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7"/>',check:'<path d="m5 12 4 4L19 6"/>'};return '<svg width="17" height="17" style="width:17px;height:17px;flex-shrink:0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+paths[name]+'</svg>'};
       const id=pzEsc(r.id),count=Number(r.itemCount)||0;
       const items=count===1?'položka':count>=2&&count<=4?'položky':'položek';
       return `<article class="pz-record pz-archive-compact" data-open-record="${id}"><div class="pz-ac-heading"><strong class="pz-ac-name">${pzEsc(r.customer||'Bez názvu')}</strong><span class="pz-ac-date">${pzDate(r.archivedAt)}</span><span class="pz-ac-status">${icon('check')}Archivováno</span>${r.kgNumber?`<span class="pz-ac-kg">${pzEsc(r.kgNumber)}</span>`:''}</div><div class="pz-ac-price"><strong>${fmtMoney(Number(r.total)||0)}</strong><small>s DPH</small></div><div class="pz-ac-details"><span>${icon('phone')}${pzEsc(r.phone||'Telefon neuveden')}</span><span>${icon('pin')}${pzEsc(r.address||'Adresa neuvedena')}</span></div><span class="pz-ac-count">${icon('layers')}${count} ${items}</span><div class="pz-ac-actions"><button type="button" class="pz-ac-open" data-archive-open="${id}">${icon('file')}Otevřít kalkulaci</button><button type="button" class="pz-ac-trash" data-trash="${id}" title="Přesunout do koše" aria-label="Přesunout kalkulaci do koše">${icon('trash')}</button></div>${pzArchiveItemNotesHtml(r)}</article>`;
@@ -7084,26 +7109,4 @@ html.pz-dark #pz-library-content .pz-s10-clear:hover,html.pz-dark #pz-library-co
 
 
 
-<style id="pz-archive-compact-style">
-#pz-app .pz-record.pz-archive-compact{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:7px 20px;width:100%;padding:13px 18px;border-radius:14px}
-#pz-app .pz-archive-compact svg{width:17px;height:17px;flex-shrink:0}
-#pz-app .pz-ac-heading{grid-column:1;grid-row:1;display:flex;align-items:center;flex-wrap:wrap;gap:6px 12px;min-width:0}
-#pz-app .pz-ac-name{font-size:17px;color:var(--pz-green-dark);overflow-wrap:anywhere}
-#pz-app .pz-ac-date{font-size:12px;color:var(--pz-muted)}
-#pz-app .pz-ac-status,#pz-app .pz-ac-kg{display:inline-flex;align-items:center;gap:4px;background:var(--pz-green-soft);color:var(--pz-green-dark);font-size:11px;padding:3px 6px;border-radius:6px}
-#pz-app .pz-ac-status svg{width:12px;height:12px}
-#pz-app .pz-ac-price{grid-column:2;grid-row:1;text-align:right;white-space:nowrap;color:var(--pz-green-dark)}
-#pz-app .pz-ac-price strong{font-size:19px}#pz-app .pz-ac-price small{font-size:11px;font-weight:400;margin-left:5px;color:var(--pz-muted)}
-#pz-app .pz-ac-details{grid-column:1;grid-row:2;display:flex;flex-wrap:wrap;gap:6px 18px;color:var(--pz-muted);font-size:13px;min-width:0}
-#pz-app .pz-ac-details>span,#pz-app .pz-ac-count{display:flex;align-items:center;gap:7px;overflow-wrap:anywhere;min-width:0}
-#pz-app .pz-ac-count{grid-column:1;grid-row:3;font-size:12px;color:var(--pz-muted)}
-#pz-app .pz-ac-actions{grid-column:2;grid-row:2/4;display:flex;align-items:center;justify-content:flex-end;gap:8px}
-#pz-app .pz-ac-actions button{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:44px;border:1px solid var(--pz-border);border-radius:9px;padding:8px 11px;font-family:inherit;font-size:12px;cursor:pointer}
-#pz-app .pz-ac-open{background:var(--pz-green-soft);color:var(--pz-green-dark);font-weight:700}
-#pz-app .pz-ac-trash{background:var(--pz-card);color:var(--pz-danger);min-width:44px}
-#pz-app .pz-ac-actions button:focus-visible{outline:2px solid var(--pz-green);outline-offset:3px}
-#pz-app .pz-archive-compact .pz-archive-item-notes{grid-column:1/-1;grid-row:auto}
-html.pz-dark #pz-app .pz-ac-name,html.pz-dark #pz-app .pz-ac-price{color:var(--pz-text)}
-html.pz-dark #pz-app .pz-ac-status,html.pz-dark #pz-app .pz-ac-kg,html.pz-dark #pz-app .pz-ac-open{background:#304c39;color:#dbf0df}
-@media(max-width:550px){#pz-app .pz-record.pz-archive-compact{padding:12px;gap:8px 12px}#pz-app .pz-ac-details{grid-column:1/-1}#pz-app .pz-ac-actions{grid-row:3}#pz-app .pz-ac-price small{display:block;margin:2px 0 0}#pz-app .pz-ac-status{display:none}}
-</style>
+
