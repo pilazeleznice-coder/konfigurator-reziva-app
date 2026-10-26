@@ -6273,8 +6273,13 @@ if(deliveryCollapsed) deliveryCollapsed.style.display = "flex";
         const blob=await pzCreateWordStylePdf(c,tot,rows,pc);
         if(key!==pzExportSignature())throw Error('Kalkulace se změnila. Vytvořte PDF znovu.');
         const link=$('pz-pdf-download'),safe=(c.name||'zakaznik').replace(/[^a-zA-Z0-9á-žÁ-Ž_-]+/g,'_');
-        const url=URL.createObjectURL(blob);link.dataset.url=url;const filename='Pila_Zeleznice_KG-'+pc+'_'+safe+'.pdf';const pdfBytes=new Uint8Array(await blob.arrayBuffer());let binary='';for(let i=0;i<pdfBytes.length;i+=0x8000)binary+=String.fromCharCode(...pdfBytes.subarray(i,i+0x8000));const dataUrl='data:application/pdf;base64,'+btoa(binary);link.href=dataUrl;link.download=filename;
-        link.onclick=async e=>{if(pzExportState.pdf!==pzExportSignature()){e.preventDefault();pzInvalidateExportFiles();return;}if(typeof window.showSaveFilePicker==='function'){e.preventDefault();try{const handle=await window.showSaveFilePicker({suggestedName:filename,types:[{description:'PDF dokument',accept:{'application/pdf':['.pdf']}}]});const writable=await handle.createWritable();await writable.write(blob);await writable.close();showToast('PDF bylo uloženo.');return;}catch(err){if(err?.name==='AbortError')return;console.warn('PDF Save File Picker:',err);showToast('Použijte znovu tlačítko Stáhnout PDF.');return;}}showToast('Spouštím stažení PDF…');};
+        const url=URL.createObjectURL(blob);link.dataset.url=url;const filename='Pila_Zeleznice_KG-'+pc+'_'+safe+'.pdf';const pdfBytes=new Uint8Array(await blob.arrayBuffer());let binary='';for(let i=0;i<pdfBytes.length;i+=0x8000)binary+=String.fromCharCode(...pdfBytes.subarray(i,i+0x8000));const dataUrl='data:application/octet-stream;base64,'+btoa(binary);link.href=dataUrl;link.download=filename;link.removeAttribute('target');link.removeAttribute('rel');
+        link.onclick=e=>{
+          if(pzExportState.pdf!==pzExportSignature()){e.preventDefault();pzInvalidateExportFiles();return;}
+          const status=$('pz-pdf-status');
+          if(status)status.textContent='Požadavek na stažení PDF byl odeslán prohlížeči…';
+          showToast('Spouštím stažení PDF…');
+        };
         pzExportReady('pdf',key);showToast('PDF je připravené ke stažení.');
       }catch(error){pzResetExport('pdf','PDF se nepodařilo vytvořit: '+(error?.message||String(error)));console.error('PDF:',error);}
       finally{btn.disabled=false;btn.textContent='Vytvořit PDF';}
