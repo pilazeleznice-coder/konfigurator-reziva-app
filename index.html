@@ -6293,24 +6293,36 @@ if(deliveryCollapsed) deliveryCollapsed.style.display = "flex";
           const status=$('pz-pdf-status');
           if(typeof window.showSaveFilePicker==='function'){
             e.preventDefault();
+            let stage='otevření dialogu';
             try{
-              const handle=await window.showSaveFilePicker({
-                suggestedName:filename,
-                types:[{description:'PDF dokument',accept:{'application/pdf':['.pdf']}}]
-              });
+              // Same picker options as the working Word export.
+              // Call synchronously from the click handler to retain user activation.
+              const pending=window.showSaveFilePicker({suggestedName:filename});
+              const handle=await pending;
+              stage='otevření souboru pro zápis';
               const writable=await handle.createWritable();
-              await writable.write(blob);
-              await writable.close();
+              let closed=false;
+              try{
+                stage='zápis PDF';
+                await writable.write(blob);
+                stage='dokončení zápisu';
+                await writable.close();
+                closed=true;
+              }finally{
+                if(!closed){try{await writable.abort();}catch(_){}}
+              }
               if(status)status.textContent='PDF bylo uloženo.';
               showToast('PDF bylo uloženo.');
             }catch(err){
-              if(err?.name==='AbortError'){
-                if(status)status.textContent='Uložení PDF bylo zrušeno. Dokument je stále připravený.';
-                return;
+              const name=err?.name||'Error';
+              const detail=err?.message||String(err);
+              console.warn('PDF Save File Picker:',{stage,name,message:detail},err);
+              if(name==='AbortError'&&stage==='otevření dialogu'){
+                if(status)status.textContent='Dialog pro uložení PDF byl přerušen nebo zrušen (AbortError). PDF je stále připravené.';
+              }else{
+                if(status)status.textContent='PDF se nepodařilo uložit. Fáze: '+stage+'. Chyba: '+name+' – '+detail;
               }
-              console.warn('PDF Save File Picker:',err);
-              if(status)status.textContent='Uložení PDF selhalo: '+(err?.message||String(err));
-              showToast('PDF se nepodařilo uložit.');
+              showToast('PDF nebylo uloženo.');
             }
             return;
           }
