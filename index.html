@@ -6286,57 +6286,36 @@ if(deliveryCollapsed) deliveryCollapsed.style.display = "flex";
         const url=URL.createObjectURL(blob);link.dataset.url=url;
         const filename='Pila_Zeleznice_KG-'+pc+'_'+safe+'.pdf';
         link.href=url;link.download=filename;link.removeAttribute('target');link.removeAttribute('rel');
-        // Prepare a real HTTP-style attachment inside the PWA's service worker.
-        let nativePdfReady=false;
-        try{
-          // A freshly installed or updated PWA may not yet be controlled.
-          // Register on demand and wait briefly for controllerchange.
-          if(!('serviceWorker' in navigator))throw Error('Service Worker API není dostupné');
-          const registration=await navigator.serviceWorker.register('./service-worker.js',{updateViaCache:'none'});
-          if(!navigator.serviceWorker.controller){
-            await Promise.race([
-              new Promise(resolve=>{
-                const onControl=()=>{navigator.serviceWorker.removeEventListener('controllerchange',onControl);resolve();};
-                navigator.serviceWorker.addEventListener('controllerchange',onControl,{once:true});
-                if(navigator.serviceWorker.controller)onControl();
-              }),
-              new Promise(resolve=>setTimeout(resolve,3500))
-            ]);
-          }
-          const controller=navigator.serviceWorker.controller;
-          if(!controller)throw Error('Service Worker zatím neovládá tuto stránku');
-          if(controller){
-            const id='pdf-'+Date.now()+'-'+Math.random().toString(36).slice(2,12);
-            const bytes=await blob.arrayBuffer();
-            const channel=new MessageChannel();
-            const ack=new Promise((resolve,reject)=>{
-              const timeout=setTimeout(()=>reject(Error('PDF worker timeout')),5000);
-              channel.port1.onmessage=event=>{clearTimeout(timeout);channel.port1.close();event.data?.ok?resolve():reject(Error(event.data?.message||'PDF worker error'));};
-            });
-            controller.postMessage({type:'PZ_PDF_PREPARE_CFG015',id,bytes,filename},[channel.port2]);
-            await ack;
-            link.href='./__pz_pdf_download__?id='+encodeURIComponent(id);
-            // Do not use the HTML download attribute for a Service Worker
-            // attachment endpoint: navigate to its response so Chrome can
-            // process Content-Disposition itself.
-            link.removeAttribute('download');
-            nativePdfReady=true;
-          }
-        }catch(err){console.warn('PDF attachment preparation:',err);link.dataset.pdfWorkerError=err?.message||String(err);}
-        link.onclick=e=>{
+        // Use the same system Save File Picker path as the working Word export.
+        // Keep a direct link only as fallback when the API is unavailable.
+        link.onclick=async e=>{
           if(pzExportState.pdf!==pzExportSignature()){e.preventDefault();pzInvalidateExportFiles();return;}
           const status=$('pz-pdf-status');
-          if(nativePdfReady){
+          if(typeof window.showSaveFilePicker==='function'){
             e.preventDefault();
-            if(status)status.textContent='Otevírám systémové stažení PDF…';
-            showToast('Předávám PDF ke stažení…');
-            // Navigate rather than invoking an anchor download. The SW replies
-            // with Content-Disposition: attachment and a real application/pdf.
-            window.location.assign(link.href);
-          }else{
-            if(status)status.textContent='Stahování přes Service Worker není připravené: '+(link.dataset.pdfWorkerError||'stránka není řízena Service Workerem')+'.';
-            showToast('PDF zatím používá záložní stažení.');
+            try{
+              const handle=await window.showSaveFilePicker({
+                suggestedName:filename,
+                types:[{description:'PDF dokument',accept:{'application/pdf':['.pdf']}}]
+              });
+              const writable=await handle.createWritable();
+              await writable.write(blob);
+              await writable.close();
+              if(status)status.textContent='PDF bylo uloženo.';
+              showToast('PDF bylo uloženo.');
+            }catch(err){
+              if(err?.name==='AbortError'){
+                if(status)status.textContent='Uložení PDF bylo zrušeno. Dokument je stále připravený.';
+                return;
+              }
+              console.warn('PDF Save File Picker:',err);
+              if(status)status.textContent='Uložení PDF selhalo: '+(err?.message||String(err));
+              showToast('PDF se nepodařilo uložit.');
+            }
+            return;
           }
+          if(status)status.textContent='Systémový dialog pro uložení není dostupný. Zkouším přímé stažení PDF…';
+          showToast('Spouštím stažení PDF…');
         };
         pzExportReady('pdf',key);showToast('PDF je připravené ke stažení.');
       }catch(error){pzResetExport('pdf','PDF se nepodařilo vytvořit: '+(error?.message||String(error)));console.error('PDF:',error);}
