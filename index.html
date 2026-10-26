@@ -41,6 +41,16 @@
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
+/* CFG-015: Register and update the PWA worker. Never clear user data. */
+if('serviceWorker' in navigator && location.protocol==='https:'){
+  window.addEventListener('load',()=>{
+    navigator.serviceWorker.register('./service-worker.js',{updateViaCache:'none'})
+      .then(reg=>reg.update().catch(err=>console.warn('PWA update:',err)))
+      .catch(err=>console.warn('PWA worker registration:',err));
+  });
+}
+</script>
+<script>
 const SUPABASE_URL = "https://nnuptyxxyceqwtxdjpbi.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable__CUybnOrIgbDA4gUiXfzHg_7YdAXEuZ";
 const pzSupabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
@@ -6273,26 +6283,37 @@ if(deliveryCollapsed) deliveryCollapsed.style.display = "flex";
         const blob=await pzCreateWordStylePdf(c,tot,rows,pc);
         if(key!==pzExportSignature())throw Error('Kalkulace se změnila. Vytvořte PDF znovu.');
         const link=$('pz-pdf-download'),safe=(c.name||'zakaznik').replace(/[^a-zA-Z0-9á-žÁ-Ž_-]+/g,'_');
-        const url=URL.createObjectURL(blob);link.dataset.url=url;const filename='Pila_Zeleznice_KG-'+pc+'_'+safe+'.pdf';const pdfBytes=new Uint8Array(await blob.arrayBuffer());let binary='';for(let i=0;i<pdfBytes.length;i+=0x8000)binary+=String.fromCharCode(...pdfBytes.subarray(i,i+0x8000));const dataUrl='data:application/octet-stream;base64,'+btoa(binary);link.href=dataUrl;link.download=filename;link.removeAttribute('target');link.removeAttribute('rel');
+        const url=URL.createObjectURL(blob);link.dataset.url=url;
+        const filename='Pila_Zeleznice_KG-'+pc+'_'+safe+'.pdf';
+        link.href=url;link.download=filename;link.removeAttribute('target');link.removeAttribute('rel');
+        // Prepare a real HTTP-style attachment inside the PWA's service worker.
+        let nativePdfReady=false;
+        try{
+          const controller=navigator.serviceWorker?.controller;
+          if(controller){
+            const id='pdf-'+Date.now()+'-'+Math.random().toString(36).slice(2,12);
+            const bytes=await blob.arrayBuffer();
+            const channel=new MessageChannel();
+            const ack=new Promise((resolve,reject)=>{
+              const timeout=setTimeout(()=>reject(Error('PDF worker timeout')),5000);
+              channel.port1.onmessage=event=>{clearTimeout(timeout);channel.port1.close();event.data?.ok?resolve():reject(Error(event.data?.message||'PDF worker error'));};
+            });
+            controller.postMessage({type:'PZ_PDF_PREPARE_CFG015',id,bytes,filename},[channel.port2]);
+            await ack;
+            link.href='./__pz_pdf_download__?id='+encodeURIComponent(id);
+            link.download=filename;
+            nativePdfReady=true;
+          }
+        }catch(err){console.warn('PDF attachment preparation:',err);}
         link.onclick=e=>{
           if(pzExportState.pdf!==pzExportSignature()){e.preventDefault();pzInvalidateExportFiles();return;}
-          e.preventDefault();
           const status=$('pz-pdf-status');
-          // Open the generated PDF as a real PDF blob in the browser's viewer.
-          // The call must occur directly in the user's click gesture.
-          try{
-            const viewer=window.open(url,'_blank');
-            if(viewer){
-              if(status)status.textContent='PDF se otevírá v prohlížeči. Pro uložení použijte nabídku prohlížeče.';
-              showToast('Otevírám PDF v prohlížeči…');
-            }else{
-              if(status)status.textContent='Prohlížeč zablokoval otevření PDF. Zkuste povolit vyskakovací okna.';
-              showToast('Otevření PDF bylo zablokováno.');
-            }
-          }catch(err){
-            console.error('PDF viewer:',err);
-            if(status)status.textContent='PDF se nepodařilo otevřít: '+(err?.message||String(err));
-            showToast('PDF se nepodařilo otevřít.');
+          if(nativePdfReady){
+            if(status)status.textContent='Odesílám PDF ke stažení jako soubor…';
+            showToast('Spouštím stažení PDF…');
+          }else{
+            if(status)status.textContent='PWA ještě nepřevzala nový způsob stahování. Zavřete aplikaci a otevřete ji znovu.';
+            showToast('PDF zatím používá záložní stažení.');
           }
         };
         pzExportReady('pdf',key);showToast('PDF je připravené ke stažení.');
