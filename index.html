@@ -6427,6 +6427,13 @@ if(deliveryCollapsed) deliveryCollapsed.style.display = "flex";
         */
         const handleWordDownload=async function(ev){
           if(pzExportState.word!==pzExportSignature()){ev.preventDefault();pzInvalidateExportFiles();return;}
+          // CFG-015 diagnostic only: show the selected existing Word save path.
+          // Does not intercept, delay, or alter the download.
+          const wordSavePath=(window.AndroidWord && typeof window.AndroidWord.saveWordFile==="function")
+            ? "AndroidWord bridge"
+            : (typeof window.showSaveFilePicker==="function" ? "showSaveFilePicker" : "přímé stažení odkazem");
+          const wordStatus=$("pz-word-status");
+          if(wordStatus)wordStatus.textContent="Diagnostika Word – způsob ukládání: "+wordSavePath;
           if(window.AndroidWord && typeof window.AndroidWord.saveWordFile === "function"){
             ev.preventDefault();
             try{
