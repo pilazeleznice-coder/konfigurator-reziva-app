@@ -6425,8 +6425,48 @@ if(deliveryCollapsed) deliveryCollapsed.style.display = "flex";
           Android pak otevře systémové dialogové okno pro uložení souboru.
           V běžném prohlížeči zůstává původní fallback přes odkaz / Save File Picker.
         */
+        // CFG-015: persistent, metadata-only Word save-path diagnostic.
+        // This never changes the export payload, link, default action or picker timing.
+        const pzCfg015Key='pz_cfg015_word_diagnostics_v1';
+        const pzCfg015Log=(event,detail='')=>{
+          try{
+            const old=JSON.parse(localStorage.getItem(pzCfg015Key)||'[]');
+            const entries=Array.isArray(old)?old.slice(-39):[];
+            entries.push({at:new Date().toISOString(),event,detail:String(detail).slice(0,140)});
+            localStorage.setItem(pzCfg015Key,JSON.stringify(entries));
+          }catch(_){}
+        };
+        if(!window.__pzCfg015UiReady){
+          window.__pzCfg015UiReady=true;
+          const wordStatusEl=$('pz-word-status');
+          if(wordStatusEl){
+            const diagnosticButton=document.createElement('button');
+            diagnosticButton.type='button';
+            diagnosticButton.textContent='Diagnostika Wordu (CFG-015)';
+            diagnosticButton.style.cssText='display:block;margin-top:8px;padding:9px 12px;border:1px solid #78917c;border-radius:8px;background:#f4f8f3;color:#173c25;font:inherit;cursor:pointer';
+            wordStatusEl.insertAdjacentElement('afterend',diagnosticButton);
+            diagnosticButton.addEventListener('click',()=>{
+              const logs=localStorage.getItem(pzCfg015Key)||'[]';
+              const panel=document.createElement('div');
+              panel.style.cssText='position:fixed;inset:0;z-index:2147483647;background:rgba(0,0,0,.68);display:flex;align-items:center;justify-content:center;padding:12px';
+              const box=document.createElement('div');
+              box.style.cssText='background:white;color:#163523;padding:16px;border-radius:12px;width:min(100%,650px);max-height:90vh;overflow:auto';
+              const title=document.createElement('h3');title.textContent='CFG-015 – Diagnostika ukládání Wordu';
+              const info=document.createElement('p');info.textContent='Záznam obsahuje pouze technické události. Návrat z Android bridge nepotvrzuje dokončení uložení.';
+              const area=document.createElement('textarea');area.readOnly=true;area.value=JSON.stringify(JSON.parse(logs),null,2);area.style.cssText='width:100%;height:260px;font:12px monospace;box-sizing:border-box';
+              const copy=document.createElement('button');copy.type='button';copy.textContent='Kopírovat diagnostiku';copy.onclick=async()=>{try{await navigator.clipboard.writeText(area.value);copy.textContent='Zkopírováno';}catch(_){area.focus();area.select();copy.textContent='Označeno – zkopírujte ručně';}};
+              const clear=document.createElement('button');clear.type='button';clear.textContent='Vymazat pouze diagnostiku';clear.style.marginLeft='8px';clear.onclick=()=>{localStorage.removeItem(pzCfg015Key);area.value='[]';};
+              const close=document.createElement('button');close.type='button';close.textContent='Zavřít';close.style.marginLeft='8px';close.onclick=()=>panel.remove();
+              box.append(title,info,area,copy,clear,close);panel.append(box);document.body.append(panel);
+            });
+          }
+          window.addEventListener('pagehide',()=>pzCfg015Log('pagehide'));
+          window.addEventListener('pageshow',e=>pzCfg015Log('pageshow','persisted='+Boolean(e.persisted)));
+          document.addEventListener('visibilitychange',()=>pzCfg015Log('visibilitychange',document.visibilityState));
+        }
         const handleWordDownload=async function(ev){
           if(pzExportState.word!==pzExportSignature()){ev.preventDefault();pzInvalidateExportFiles();return;}
+          pzCfg015Log('handleWordDownload entered','AndroidWord='+Boolean(window.AndroidWord&&typeof window.AndroidWord.saveWordFile==='function')+'; picker='+Boolean(typeof window.showSaveFilePicker==='function'));
           // CFG-015 diagnostic only: show the selected existing Word save path.
           // Does not intercept, delay, or alter the download.
           const wordSavePath=(window.AndroidWord && typeof window.AndroidWord.saveWordFile==="function")
@@ -6437,9 +6477,12 @@ if(deliveryCollapsed) deliveryCollapsed.style.display = "flex";
           if(window.AndroidWord && typeof window.AndroidWord.saveWordFile === "function"){
             ev.preventDefault();
             try{
+              pzCfg015Log('branch','AndroidWord bridge');
               window.AndroidWord.saveWordFile(fileName, base64);
+              pzCfg015Log('bridge returned','native save completion not verified');
               return;
             }catch(err){
+              pzCfg015Log("bridge exception",err?.name||"Error");
               console.error("AndroidWordBridge:",err);
               alert("Dokument se nepodařilo předat Android aplikaci. Důvod: "+(err?.message||String(err)));
               return;
@@ -6449,13 +6492,16 @@ if(deliveryCollapsed) deliveryCollapsed.style.display = "flex";
           if(typeof window.showSaveFilePicker==="function"){
             ev.preventDefault();
             try{
+              pzCfg015Log("branch","showSaveFilePicker");
               const handle=await window.showSaveFilePicker({suggestedName:fileName});
               const writable=await handle.createWritable();
               await writable.write(blob);
               await writable.close();
+              pzCfg015Log("picker completed","writable closed");
               showToast("Dokument Word byl uložen.");
               return;
             }catch(err){
+              pzCfg015Log("picker exception",err?.name||"Error");
               if(err?.name==="AbortError")return;
               console.warn("Nativní uložení není dostupné, používám přímé stažení:",err);
               link.onclick=null;
@@ -6466,6 +6512,7 @@ if(deliveryCollapsed) deliveryCollapsed.style.display = "flex";
             }
           }
 
+          pzCfg015Log("branch","direct data URL; browser handoff, completion unverified");
           showToast("Spouštím stažení dokumentu Word…");
         };
         link.onclick=handleWordDownload;
