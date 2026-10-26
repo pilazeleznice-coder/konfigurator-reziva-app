@@ -6274,35 +6274,26 @@ if(deliveryCollapsed) deliveryCollapsed.style.display = "flex";
         if(key!==pzExportSignature())throw Error('Kalkulace se změnila. Vytvořte PDF znovu.');
         const link=$('pz-pdf-download'),safe=(c.name||'zakaznik').replace(/[^a-zA-Z0-9á-žÁ-Ž_-]+/g,'_');
         const url=URL.createObjectURL(blob);link.dataset.url=url;const filename='Pila_Zeleznice_KG-'+pc+'_'+safe+'.pdf';const pdfBytes=new Uint8Array(await blob.arrayBuffer());let binary='';for(let i=0;i<pdfBytes.length;i+=0x8000)binary+=String.fromCharCode(...pdfBytes.subarray(i,i+0x8000));const dataUrl='data:application/octet-stream;base64,'+btoa(binary);link.href=dataUrl;link.download=filename;link.removeAttribute('target');link.removeAttribute('rel');
-        link.onclick=async e=>{
+        link.onclick=e=>{
           if(pzExportState.pdf!==pzExportSignature()){e.preventDefault();pzInvalidateExportFiles();return;}
+          e.preventDefault();
           const status=$('pz-pdf-status');
-          // In an installed Android PWA, Web Share Level 2 can hand a real PDF file
-          // to Android's system share sheet, including available save destinations.
-          const file=new File([blob],filename,{type:'application/pdf'});
-          const payload={files:[file],title:filename};
-          let canShareFile=false;
-          try{canShareFile=typeof navigator.share==='function'&&typeof navigator.canShare==='function'&&navigator.canShare({files:[file]});}catch(err){console.warn('PDF share capability:',err);}
-          if(canShareFile){
-            e.preventDefault();
-            if(status)status.textContent='Otevírám systémovou nabídku pro uložení nebo sdílení PDF…';
-            try{
-              await navigator.share(payload);
-              if(status)status.textContent='PDF bylo předáno systému Android. Zkontrolujte zvolenou aplikaci.';
-              showToast('PDF předáno systému Android.');
-            }catch(err){
-              if(err?.name==='AbortError'){
-                if(status)status.textContent='Sdílení bylo zrušeno. PDF je stále připravené.';
-              }else{
-                console.error('PDF share:',err);
-                if(status)status.textContent='Systémové sdílení selhalo: '+(err?.message||String(err));
-                showToast('Sdílení PDF se nepodařilo.');
-              }
+          // Open the generated PDF as a real PDF blob in the browser's viewer.
+          // The call must occur directly in the user's click gesture.
+          try{
+            const viewer=window.open(url,'_blank');
+            if(viewer){
+              if(status)status.textContent='PDF se otevírá v prohlížeči. Pro uložení použijte nabídku prohlížeče.';
+              showToast('Otevírám PDF v prohlížeči…');
+            }else{
+              if(status)status.textContent='Prohlížeč zablokoval otevření PDF. Zkuste povolit vyskakovací okna.';
+              showToast('Otevření PDF bylo zablokováno.');
             }
-            return;
+          }catch(err){
+            console.error('PDF viewer:',err);
+            if(status)status.textContent='PDF se nepodařilo otevřít: '+(err?.message||String(err));
+            showToast('PDF se nepodařilo otevřít.');
           }
-          if(status)status.textContent='Systémové sdílení souborů není dostupné; zkouším přímé stažení PDF…';
-          showToast('Spouštím stažení PDF…');
         };
         pzExportReady('pdf',key);showToast('PDF je připravené ke stažení.');
       }catch(error){pzResetExport('pdf','PDF se nepodařilo vytvořit: '+(error?.message||String(error)));console.error('PDF:',error);}
