@@ -6289,7 +6289,22 @@ if(deliveryCollapsed) deliveryCollapsed.style.display = "flex";
         // Prepare a real HTTP-style attachment inside the PWA's service worker.
         let nativePdfReady=false;
         try{
-          const controller=navigator.serviceWorker?.controller;
+          // A freshly installed or updated PWA may not yet be controlled.
+          // Register on demand and wait briefly for controllerchange.
+          if(!('serviceWorker' in navigator))throw Error('Service Worker API není dostupné');
+          const registration=await navigator.serviceWorker.register('./service-worker.js',{updateViaCache:'none'});
+          if(!navigator.serviceWorker.controller){
+            await Promise.race([
+              new Promise(resolve=>{
+                const onControl=()=>{navigator.serviceWorker.removeEventListener('controllerchange',onControl);resolve();};
+                navigator.serviceWorker.addEventListener('controllerchange',onControl,{once:true});
+                if(navigator.serviceWorker.controller)onControl();
+              }),
+              new Promise(resolve=>setTimeout(resolve,3500))
+            ]);
+          }
+          const controller=navigator.serviceWorker.controller;
+          if(!controller)throw Error('Service Worker zatím neovládá tuto stránku');
           if(controller){
             const id='pdf-'+Date.now()+'-'+Math.random().toString(36).slice(2,12);
             const bytes=await blob.arrayBuffer();
@@ -6304,7 +6319,7 @@ if(deliveryCollapsed) deliveryCollapsed.style.display = "flex";
             link.download=filename;
             nativePdfReady=true;
           }
-        }catch(err){console.warn('PDF attachment preparation:',err);}
+        }catch(err){console.warn('PDF attachment preparation:',err);link.dataset.pdfWorkerError=err?.message||String(err);}
         link.onclick=e=>{
           if(pzExportState.pdf!==pzExportSignature()){e.preventDefault();pzInvalidateExportFiles();return;}
           const status=$('pz-pdf-status');
@@ -6312,7 +6327,7 @@ if(deliveryCollapsed) deliveryCollapsed.style.display = "flex";
             if(status)status.textContent='Odesílám PDF ke stažení jako soubor…';
             showToast('Spouštím stažení PDF…');
           }else{
-            if(status)status.textContent='PWA ještě nepřevzala nový způsob stahování. Zavřete aplikaci a otevřete ji znovu.';
+            if(status)status.textContent='Stahování přes Service Worker není připravené: '+(link.dataset.pdfWorkerError||'stránka není řízena Service Workerem')+'.';
             showToast('PDF zatím používá záložní stažení.');
           }
         };
