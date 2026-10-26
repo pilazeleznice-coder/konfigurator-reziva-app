@@ -1,4 +1,4 @@
-const CACHE_NAME = "konfigurator-reziva-v3";
+const CACHE_NAME = "konfigurator-reziva-v4";
 
 const APP_FILES = [
   "./",
@@ -23,7 +23,7 @@ self.addEventListener("activate", (event) => {
     caches.keys().then((cacheNames) => {
       return Promise.all(
         cacheNames
-          .filter((name) => name !== CACHE_NAME)
+          .filter((name) => name.startsWith("konfigurator-reziva-") && name !== CACHE_NAME)
           .map((name) => caches.delete(name))
       );
     }).then(() => self.clients.claim())
@@ -69,6 +69,22 @@ self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
 
   const url = new URL(event.request.url);
+  // Navigation must check the network without HTTP-cache reuse.
+  // This prevents an installed PWA from repeatedly loading an old index.html.
+  if(url.origin===self.location.origin && event.request.mode==='navigate'){
+    event.respondWith(
+      fetch(new Request(event.request,{cache:'no-store'}))
+        .then(response=>{
+          if(response.ok){
+            const copy=response.clone();
+            caches.open(CACHE_NAME).then(cache=>cache.put('./index.html',copy)).catch(()=>{});
+          }
+          return response;
+        })
+        .catch(async()=>await caches.match('./index.html') || await caches.match('./'))
+    );
+    return;
+  }
 
   if (url.origin !== self.location.origin) return;
 
