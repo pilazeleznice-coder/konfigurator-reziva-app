@@ -6316,7 +6316,10 @@ if(deliveryCollapsed) deliveryCollapsed.style.display = "flex";
             controller.postMessage({type:'PZ_PDF_PREPARE_CFG015',id,bytes,filename},[channel.port2]);
             await ack;
             link.href='./__pz_pdf_download__?id='+encodeURIComponent(id);
-            link.download=filename;
+            // Do not use the HTML download attribute for a Service Worker
+            // attachment endpoint: navigate to its response so Chrome can
+            // process Content-Disposition itself.
+            link.removeAttribute('download');
             nativePdfReady=true;
           }
         }catch(err){console.warn('PDF attachment preparation:',err);link.dataset.pdfWorkerError=err?.message||String(err);}
@@ -6324,8 +6327,12 @@ if(deliveryCollapsed) deliveryCollapsed.style.display = "flex";
           if(pzExportState.pdf!==pzExportSignature()){e.preventDefault();pzInvalidateExportFiles();return;}
           const status=$('pz-pdf-status');
           if(nativePdfReady){
-            if(status)status.textContent='Odesílám PDF ke stažení jako soubor…';
-            showToast('Spouštím stažení PDF…');
+            e.preventDefault();
+            if(status)status.textContent='Otevírám systémové stažení PDF…';
+            showToast('Předávám PDF ke stažení…');
+            // Navigate rather than invoking an anchor download. The SW replies
+            // with Content-Disposition: attachment and a real application/pdf.
+            window.location.assign(link.href);
           }else{
             if(status)status.textContent='Stahování přes Service Worker není připravené: '+(link.dataset.pdfWorkerError||'stránka není řízena Service Workerem')+'.';
             showToast('PDF zatím používá záložní stažení.');
