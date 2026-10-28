@@ -4,6 +4,45 @@
 <link rel="manifest" href="./manifest.webmanifest">
 <meta name="theme-color" content="#2f5f3a">
 
+<!-- PZ_CHROME_INSTALL_V1: browser-native PWA installation, independent of Android Studio. -->
+<style>
+#pz-chrome-install-button{position:fixed;right:16px;bottom:16px;z-index:2147483000;background:#2f5f3a;color:#fff;border:0;border-radius:14px;padding:13px 18px;box-shadow:0 4px 18px #0003;font:600 14px Arial,sans-serif;cursor:pointer}
+#pz-chrome-install-button[hidden]{display:none!important}
+</style>
+<script>
+(function(){
+  let pendingInstall=null,installButton=null;
+  function installed(){return window.matchMedia('(display-mode: standalone)').matches||window.navigator.standalone===true;}
+  function update(){if(installButton)installButton.hidden=!pendingInstall||installed();}
+  window.addEventListener('beforeinstallprompt',function(event){
+    event.preventDefault();
+    pendingInstall=event;
+    update();
+  });
+  window.addEventListener('appinstalled',function(){pendingInstall=null;update();});
+  function init(){
+    if(!document.body||document.getElementById('pz-chrome-install-button'))return;
+    installButton=document.createElement('button');
+    installButton.id='pz-chrome-install-button';
+    installButton.type='button';
+    installButton.textContent='Nainstalovat aplikaci';
+    installButton.hidden=true;
+    installButton.addEventListener('click',async function(){
+      if(!pendingInstall)return;
+      const event=pendingInstall;
+      pendingInstall=null;
+      update();
+      try{await event.prompt();await event.userChoice;}catch(err){console.warn('PWA installation:',err);}
+    });
+    document.body.appendChild(installButton);
+    update();
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init,{once:true});
+  else init();
+})();
+</script>
+
+
 
 
 
