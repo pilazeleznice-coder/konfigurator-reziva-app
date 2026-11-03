@@ -1,4 +1,4 @@
-const CACHE_NAME = "konfigurator-reziva-v5";
+const CACHE_NAME = "konfigurator-reziva-v6";
 
 const APP_FILES = [
   "./",
