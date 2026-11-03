@@ -1,6 +1,7 @@
 {
   "name": "Konfigurátor řeziva",
   "short_name": "Konfigurátor řeziva",
+  "id": "/konfigurator-reziva-app/",
   "description": "Konfigurátor a kalkulátor řeziva Pila Železnice",
   "start_url": "./",
   "scope": "./",
