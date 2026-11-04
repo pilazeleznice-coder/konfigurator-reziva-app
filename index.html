@@ -6742,7 +6742,7 @@ window.pzSetSyncStatus=function(status){const b=document.getElementById("pz-sync
     }
     function pzReviewMarkup(r){
       const job=pzReviewJobs.get(r.id);
-      if(job===undefined)return `<button type="button" class="pz-mini-btn" data-review-status="${pzEsc(r.id)}">Dodání a recenze</button>`;
+      if(job===undefined)return `<button type="button" class="pz-mini-btn" data-review-schedule="${pzEsc(r.id)}">Potvrdit dodání · recenze za 2 dny</button>`;
       if(!job)return `<button type="button" class="pz-mini-btn" data-review-schedule="${pzEsc(r.id)}">Potvrdit dodání · recenze za 2 dny</button>`;
       const labels={scheduled:'Žádost naplánována',sent:'Odeslána',delivered:'Doručena',canceled:'Žádost zrušena',pending:'Čeká na ověření správcem',error:'Chyba plánování',bounced:'Nedoručeno',complained:'Označeno jako spam',failed:'Odeslání selhalo'};
       return `<div class="pz-review-state">Dodáno ${pzEsc(pzDate(job.deliveredAt))}<br>${pzEsc(labels[job.status]||job.status)}${job.status==='scheduled'?' · '+pzEsc(pzDate(job.scheduledAt)):''}<br><button type="button" class="pz-mini-btn" data-review-status="${pzEsc(r.id)}">Obnovit stav</button>${job.status==='scheduled'?` <button type="button" class="pz-mini-btn" data-review-cancel="${pzEsc(r.id)}">Zrušit žádost</button>`:''}</div>`;
