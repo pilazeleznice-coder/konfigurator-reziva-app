@@ -6733,7 +6733,7 @@ window.pzSetSyncStatus=function(status){const b=document.getElementById("pz-sync
       if(!items.length) return "";
       return `<div class="pz-record-cell pz-archive-item-notes">${items.map((item,index)=>`<div><strong>${pzEsc(titleFor(item))}</strong><span><b>Poznámka:</b> ${pzEsc(String(item.note).trim())}</span></div>`).join("")}</div>`;
     }
-    const pzReviewJobs=new Map();
+    const pzReviewJobs=(()=>{try{return new Map(JSON.parse(localStorage.getItem('pzReviewUiV1')||'[]'))}catch(_){return new Map()}})();
     async function pzReviewCall(id,action){
       const {data,error}=await pzSupabase.auth.getSession();
       if(error||!data.session)throw Error('Nejdříve se přihlaste.');
@@ -6759,7 +6759,7 @@ window.pzSetSyncStatus=function(status){const b=document.getElementById("pz-sync
         if(action==='schedule'){
           const r=pzRecords().find(r=>r.id===id);if(!r||!await pzCloudSaveRecord(r))throw Error('Objednávku nejprve synchronizujte do cloudu.');
         }
-        const job=await pzReviewCall(id,action);pzReviewJobs.set(id,job||null);pzRenderLibrary();
+        const job=await pzReviewCall(id,action);pzReviewJobs.set(id,job||null);try{localStorage.setItem('pzReviewUiV1',JSON.stringify([...pzReviewJobs].map(([key,value])=>[key,value?{status:value.status,deliveredAt:value.deliveredAt,scheduledAt:value.scheduledAt}:null])))}catch(_){}pzRenderLibrary();
       }catch(err){showToast(err.message);}finally{b.disabled=false;}
     });
 
