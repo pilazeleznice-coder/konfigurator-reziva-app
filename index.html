@@ -2647,21 +2647,21 @@ visibility: hidden;
     .pz-unit-wrap:focus-within .pz-unit-suffix{display:none}
 
     /* Beam price: editable input with a styled preset picker. */
-    /* Match the adjacent dimension fields: one unified neutral control. */
-    .pz-manager-field:has(.pz-beam-price-wrap) label{color:inherit;font-size:14px}
-    .pz-beam-price-wrap{width:100%;min-width:0;border:1px solid var(--pz-border);border-radius:13px;background:#fff;box-sizing:border-box;display:flex;align-items:stretch}
+    /* Original red price-field palette, with unified editable input and preset picker. */
+    .pz-manager-field:has(.pz-beam-price-wrap) label{color:#7b1e1e;font-size:14px}
+    .pz-beam-price-wrap{width:100%;min-width:0;border:1px solid #df8f8f;border-radius:13px;background:#fff1f1;box-sizing:border-box;display:flex;align-items:stretch}
     .pz-manager-field .pz-beam-price-wrap input{border:0!important;background:transparent!important;border-radius:13px 0 0 13px!important;padding:12px 118px 12px 13px!important;min-height:48px;outline:none;box-shadow:none!important}
-    .pz-beam-price-wrap:focus-within{border-color:var(--pz-green)}
+    .pz-beam-price-wrap:focus-within{border-color:#b94b4b}
     .pz-beam-price-wrap .pz-unit-suffix{right:58px}
 
     .pz-beam-price-wrap:focus-within .pz-unit-suffix{display:block}
-    .pz-beam-price-toggle{position:absolute;right:0;top:0;height:100%;width:46px;display:flex;align-items:center;justify-content:center;border:0;border-left:1px solid var(--pz-border);border-radius:0 12px 12px 0;background:var(--pz-green-soft);color:var(--pz-green-dark);cursor:pointer;z-index:2}
-    .pz-beam-price-toggle:hover,.pz-beam-price-toggle[aria-expanded="true"]{background:#dcebdc}
-    .pz-beam-price-toggle:focus-visible{outline:2px solid var(--pz-green-dark);outline-offset:-3px}
-    .pz-beam-price-menu{position:absolute;left:0;right:0;top:calc(100% + 5px);z-index:200;background:#fff;border:1px solid var(--pz-border);border-radius:12px;box-shadow:0 9px 25px rgba(0,0,0,.16);padding:5px;max-height:210px;overflow-y:auto}
+    .pz-beam-price-toggle{position:absolute;right:0;top:0;height:100%;width:46px;display:flex;align-items:center;justify-content:center;border:0;border-left:1px solid #df8f8f;border-radius:0 12px 12px 0;background:#f9dddd;color:#8c2424;cursor:pointer;z-index:2}
+    .pz-beam-price-toggle:hover,.pz-beam-price-toggle[aria-expanded="true"]{background:#f2c5c5}
+    .pz-beam-price-toggle:focus-visible{outline:2px solid #8c2424;outline-offset:-3px}
+    .pz-beam-price-menu{position:absolute;left:0;right:0;top:calc(100% + 5px);z-index:200;background:#fff9f9;border:1px solid #df8f8f;border-radius:12px;box-shadow:0 9px 25px rgba(0,0,0,.16);padding:5px;max-height:210px;overflow-y:auto}
     .pz-beam-price-menu[hidden]{display:none!important}
-    .pz-beam-price-option{display:block;width:100%;padding:11px 12px;text-align:left;border:0;border-radius:8px;background:transparent;color:var(--pz-green-dark);font:inherit;font-weight:600;cursor:pointer}
-    .pz-beam-price-option:hover,.pz-beam-price-option:focus-visible{background:var(--pz-green-soft)}
+    .pz-beam-price-option{display:block;width:100%;padding:11px 12px;text-align:left;border:0;border-radius:8px;background:transparent;color:#7b1e1e;font:inherit;font-weight:600;cursor:pointer}
+    .pz-beam-price-option:hover,.pz-beam-price-option:focus-visible{background:#f9dddd}
 
     .pz-percent-wrap input{padding-right:38px!important}
     .pz-kpi.pz-discount-row strong,.pz-discount-value{color:#c62828!important}
