@@ -7482,3 +7482,75 @@ html.pz-dark #pz-library-content .pz-s10-clear:hover,html.pz-dark #pz-library-co
 
 
 
+
+<!-- CFG-016: Android PWA system Back navigation. Independent of calculation storage. -->
+<script id="pz-android-back-navigation">
+(function(){
+  'use strict';
+  const ids=['pz-leave-dialog','pz-clear-confirm','pz-3d-modal','pz-cart-modal','pz-library','pz-nav-overlay'];
+  const get=id=>document.getElementById(id);
+  const isOpen=id=>!!get(id)?.classList.contains('open');
+  const active=()=>ids.find(isOpen)||null;
+  const key='pzBackLayer';
+  let tracked=null, handlingPop=false, scheduled=false;
+  // A history entry for the main application prevents Android from closing it
+  // when a navigation layer is being dismissed.
+  const base={...(history.state||{}),pzBackBase:true};
+  history.replaceState(base,'',location.href);
+  function armBase(){
+    if(!history.state?.pzBackGuard)history.pushState({...base,pzBackGuard:true},'',location.href);
+  }
+  armBase();
+  function sync(){
+    if(handlingPop)return;
+    const now=active();
+    if(now===tracked)return;
+    if(now){
+      tracked=now;
+      history.pushState({...base,[key]:now,pzBackGuard:true},'',location.href);
+    }else if(tracked){
+      tracked=null;
+      // A layer was closed with an in-app control. Consume its history entry.
+      if(history.state?.[key])history.back();
+    }
+  }
+  function queueSync(){if(scheduled)return;scheduled=true;setTimeout(()=>{scheduled=false;sync()},0)}
+  function closeLayer(id){
+    const el=get(id);if(!el)return;
+    if(id==='pz-cart-modal'){
+      // Use the existing close button to preserve scroll-lock cleanup.
+      const close=el.querySelector('[data-close-cart],#pz-close-cart,.pz-cart-close,[aria-label="Zavřít"]');
+      if(close){close.click();return}
+      el.classList.remove('open');el.setAttribute('aria-hidden','true');
+      document.documentElement.classList.remove('pz-cart-page-locked');
+      document.body.classList.remove('pz-cart-page-locked');
+      return;
+    }
+    if(id==='pz-library'){get('pz-library-close')?.click();return}
+    if(id==='pz-nav-overlay'){get('pz-menu-close')?.click();return}
+    if(id==='pz-leave-dialog'){get('pz-leave-stay')?.click();return}
+    if(id==='pz-clear-confirm'){get('pz-clear-cancel')?.click();return}
+    if(id==='pz-3d-modal'){
+      const btn=el.querySelector('[data-close],.pz-3d-close,[aria-label="Zavřít"]');
+      if(btn){btn.click();return}
+    }
+    el.classList.remove('open');el.setAttribute('aria-hidden','true');
+  }
+  window.addEventListener('popstate',function(){
+    handlingPop=true;
+    const id=active();
+    if(id)closeLayer(id);
+    tracked=null;
+    setTimeout(()=>{
+      handlingPop=false;
+      const remaining=active();
+      if(remaining){tracked=remaining;history.pushState({...base,[key]:remaining,pzBackGuard:true},'',location.href)}
+      else armBase();
+    },0);
+  });
+  const observer=new MutationObserver(queueSync);
+  ids.forEach(id=>{const el=get(id);if(el)observer.observe(el,{attributes:true,attributeFilter:['class']})});
+  document.addEventListener('click',queueSync,true);
+  // Avoid interfering with authentication, form values, and autosave.
+})();
+</script>
