@@ -6773,7 +6773,7 @@ window.pzSetSyncStatus=function(status){const b=document.getElementById("pz-sync
     const pzReviewDefaults={delay:5,email:true,whatsapp:true,sms:true,noWhatsApp:''};
     function pzReviewSettings(){try{return {...pzReviewDefaults,...JSON.parse(localStorage.getItem('pzReviewSettingsV2')||'{}')}}catch(_){return {...pzReviewDefaults}}}
     function pzManualPhone(raw){let n=String(raw||'').replace(/[\s().-]/g,'');if(n.startsWith('00'))n='+'+n.slice(2);if(/^\d{9}$/.test(n))n='+420'+n;return /^\+[1-9]\d{7,14}$/.test(n)?n:null;}
-    function pzReviewDelivered(r){return Number(r.reviewDelivery?.at||r.manualReview?.deliveredAt||Date.parse(pzReviewJobs.get(r.id)?.deliveredAt||'')||0);}
+    function pzReviewDelivered(r){if(r.reviewDelivery?.undone)return 0;return Number(r.reviewDelivery?.at||r.manualReview?.deliveredAt||Date.parse(pzReviewJobs.get(r.id)?.deliveredAt||'')||0);}
     function pzReviewMarkup(r){const yes=pzReviewDelivered(r);return `<button type="button" class="pz-mini-btn" data-rv-open="${pzEsc(r.id)}">${yes?'✓ Dodání potvrzeno – možnosti recenze':'Potvrdit dodání – zaslat recenzi'}</button>`;}
     function pzManualText(r){const name=String(r.customer||'').trim();return (name&&name!=='Bez názvu'?'Vážený/á pane/paní '+name+',':'Dobrý den,')+'\n\nděkujeme, že jste si pro svou objednávku vybrali naši společnost. Budeme rádi za Vaši recenzi:\n\nGoogle: https://g.page/r/CcKthFF6lz62EBE/review\nFirmy.cz: https://www.firmy.cz/detail/1971252-pila-zeleznice-pavel-fidrmuc-zeleznice.html#pridat-hodnoceni\n\nDěkujeme, že pomáháte dalším zákazníkům.\nPila Železnice';}
     function pzReviewSave(id,patch){const rows=pzRecords(),i=rows.findIndex(r=>r.id===id&&r.type==='archive');if(i<0)throw Error('Objednávka již není v Archivu.');rows[i]={...rows[i],...patch,updatedAt:Date.now()};pzWriteRecords(rows);return rows[i];}
@@ -6796,7 +6796,7 @@ window.pzSetSyncStatus=function(status){const b=document.getElementById("pz-sync
         const href=phone?(channel==='whatsapp'?'https://wa.me/'+phone.slice(1)+'?text='+text:'sms:'+phone+(ios?'&':'?')+'body='+text):'';
         return `<section><h3>${title}</h3><p>Ruční odeslání z telefonu · ${pzEsc(r.phone||'Telefon chybí')}</p>${!phone?'<p>Doplňte platné telefonní číslo.</p>':blocked?'<p>U tohoto čísla je označeno „Nemá WhatsApp“.</p>':sent?`<p>✓ Označeno jako odeslané ${stamp(m.sentAt)}</p>`:ready?`<a class="pz-mini-btn" href="${pzEsc(href)}" ${channel==='whatsapp'?'target="_blank" rel="noopener noreferrer"':''} data-rv-compose="${channel}">Otevřít ${title}</a> <button type="button" class="pz-mini-btn" data-rv-sent="${channel}">Označit jako odeslané</button>`:`<p>Čeká do ${stamp(due)}.</p>`}</section>`;
       };
-      d.innerHTML=header+`<div class="pz-rv-body"><p>Vyberte způsob. E-mail odešle systém; WhatsApp a SMS potvrdíte v telefonu. Příprava zpráv: ${stamp(due)}.</p>${email}${manual('whatsapp','WhatsApp',s.whatsapp)}${manual('sms','SMS',s.sms)}${!s.email&&!s.whatsapp&&!s.sms?'<p>Všechny možnosti jsou vypnuté v Nastavení → Odesílání recenzí.</p>':''}<small>Otevření zprávy neznamená odeslání. SMS může mít více částí a řídí se Vaším tarifem.</small><div id="pz-rv-message" role="status"></div></div>`;
+      d.innerHTML=header+`<div class="pz-rv-body"><p>Vyberte způsob. E-mail odešle systém; WhatsApp a SMS potvrdíte v telefonu. Příprava zpráv: ${stamp(due)}.</p>${email}${manual('whatsapp','WhatsApp',s.whatsapp)}${manual('sms','SMS',s.sms)}${!s.email&&!s.whatsapp&&!s.sms?'<p>Všechny možnosti jsou vypnuté v Nastavení → Odesílání recenzí.</p>':''}<small>Otevření zprávy neznamená odeslání. SMS může mít více částí a řídí se Vaším tarifem.</small><p><button type="button" class="pz-mini-btn" data-rv-undo ${disabled}>Vrátit mezi nedodané</button></p><div id="pz-rv-message" role="status"></div></div>`;
       pzReviewDialogId=id;if(!d.open)d.showModal();
     }
     function pzReviewSettingsPanel(){
@@ -6805,7 +6805,7 @@ window.pzSetSyncStatus=function(status){const b=document.getElementById("pz-sync
       host.innerHTML=`<div class="pz-rv-settings"><button type="button" class="pz-s9-back" data-rv-settings-back>← Zpět do Nastavení</button><h3>Odesílání recenzí</h3><p>Nastavení v tomto zařízení. Změny platí pro nová potvrzení a nové e-maily; stávající termíny zůstávají.</p><label>Odstup všech tří možností (minuty)<input id="pz-rv-delay" type="number" min="1" max="43200" step="1" value="${Number(s.delay)}"></label><small>Nyní testovací režim 5 minut. Pro 2 dny nastavte 2880 minut.</small>${[['email','E-mail – automatické odeslání'],['whatsapp','WhatsApp – ruční odeslání'],['sms','SMS – ruční odeslání']].map(([key,label])=>`<label><input type="checkbox" id="pz-rv-${key}" ${s[key]?'checked':''}> ${label}</label>`).join('')}<label>Telefonní čísla bez WhatsAppu<textarea id="pz-rv-nowa" rows="4" placeholder="Jedno číslo na řádek, např. +420773214618">${pzEsc(numbers)}</textarea></label><button type="button" class="pz-mini-btn" data-rv-settings-save>Uložit nastavení</button><p id="pz-rv-settings-status" role="status"></p></div>`;
     }
     document.addEventListener('click',async e=>{
-      const b=e.target.closest('[data-rv-open],[data-rv-close],[data-rv-email],[data-rv-sent],[data-rv-compose],#pz-rv-settings-open,[data-rv-settings-back],[data-rv-settings-save]');if(!b)return;
+      const b=e.target.closest('[data-rv-open],[data-rv-close],[data-rv-undo],[data-rv-email],[data-rv-sent],[data-rv-compose],#pz-rv-settings-open,[data-rv-settings-back],[data-rv-settings-save]');if(!b)return;
       e.stopPropagation();
       try{
         if(b.id==='pz-rv-settings-open'){pzReviewSettingsPanel();return;}
@@ -6828,6 +6828,21 @@ window.pzSetSyncStatus=function(status){const b=document.getElementById("pz-sync
           pzRenderLibrary();pzReviewDialogRender(id);return;
         }
         const id=pzReviewDialogId,r=pzRecords().find(r=>r.id===id&&r.type==='archive');if(!r)throw Error('Objednávka není v Archivu.');
+        if(b.hasAttribute('data-rv-undo')){
+          if(pzReviewBusy)return;
+          if(!confirm('Vrátit objednávku mezi nedodané? Čekající e-mail bude zrušen. Už odeslané zprávy nelze vzít zpět.'))return;
+          pzReviewBusy=true;pzReviewDialogRender(id);
+          try{
+            let job=await pzReviewCall(id,'status');
+            if(job?.status==='scheduled')job=await pzReviewCall(id,'cancel');
+            if(job&&['scheduled','pending','error'].includes(job.status))throw Error('Stav e-mailu není bezpečně uzavřený. Nejprve ověřte jeho odeslání nebo zrušení.');
+            const current=pzRecords().find(x=>x.id===id&&x.type==='archive');
+            if(!current)throw Error('Objednávka již není v Archivu.');
+            pzReviewSave(id,{reviewDelivery:{at:0,undone:true,undoneAt:Date.now()},manualReview:{...(current.manualReview||{}),deliveredAt:null,dueAt:null}});
+            pzReviewDialog.close();pzRenderLibrary();showToast('Objednávka vrácena mezi nedodané.');
+          }finally{pzReviewBusy=false;}
+          return;
+        }
         if(b.hasAttribute('data-rv-compose')){
           if(Date.now()<Number(r.manualReview?.dueAt||Infinity)){e.preventDefault();throw Error('Ještě neuplynul nastavený odstup.');}
           return;
