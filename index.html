@@ -6770,111 +6770,83 @@ window.pzSetSyncStatus=function(status){const b=document.getElementById("pz-sync
       return `<div class="pz-record-cell pz-archive-item-notes">${deliveryHtml}${items.map((item,index)=>`<div><strong>${pzEsc(titleFor(item))}</strong><span><b>Poznámka:</b> ${pzEsc(String(item.note).trim())}</span></div>`).join("")}</div>`;
     }
     const pzReviewJobs=(()=>{try{return new Map(JSON.parse(localStorage.getItem('pzReviewUiV1')||'[]'))}catch(_){return new Map()}})();
-    async function pzReviewCall(id,action){
-      const {data,error}=await pzSupabase.auth.getSession();
-      if(error||!data.session)throw Error('Nejdříve se přihlaste.');
-      const response=await fetch('https://poptavkovy-formular.vercel.app/api/review',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+data.session.access_token},body:JSON.stringify({id,action})});
-      const result=await response.json();if(!response.ok)throw Error(result.error||'Operace se nezdařila.');return result.job;
+    const pzReviewDefaults={delay:5,email:true,whatsapp:true,sms:true,noWhatsApp:''};
+    function pzReviewSettings(){try{return {...pzReviewDefaults,...JSON.parse(localStorage.getItem('pzReviewSettingsV2')||'{}')}}catch(_){return {...pzReviewDefaults}}}
+    function pzManualPhone(raw){let n=String(raw||'').replace(/[\s().-]/g,'');if(n.startsWith('00'))n='+'+n.slice(2);if(/^\d{9}$/.test(n))n='+420'+n;return /^\+[1-9]\d{7,14}$/.test(n)?n:null;}
+    function pzReviewDelivered(r){return Number(r.reviewDelivery?.at||r.manualReview?.deliveredAt||Date.parse(pzReviewJobs.get(r.id)?.deliveredAt||'')||0);}
+    function pzReviewMarkup(r){const yes=pzReviewDelivered(r);return `<button type="button" class="pz-mini-btn" data-rv-open="${pzEsc(r.id)}">${yes?'✓ Dodání potvrzeno – možnosti recenze':'Potvrdit dodání – zaslat recenzi'}</button>`;}
+    function pzManualText(r){const name=String(r.customer||'').trim();return (name&&name!=='Bez názvu'?'Vážený/á pane/paní '+name+',':'Dobrý den,')+'\n\nděkujeme, že jste si pro svou objednávku vybrali naši společnost. Budeme rádi za Vaši recenzi:\n\nGoogle: https://g.page/r/CcKthFF6lz62EBE/review\nFirmy.cz: https://www.firmy.cz/detail/1971252-pila-zeleznice-pavel-fidrmuc-zeleznice.html#pridat-hodnoceni\n\nDěkujeme, že pomáháte dalším zákazníkům.\nPila Železnice';}
+    function pzReviewSave(id,patch){const rows=pzRecords(),i=rows.findIndex(r=>r.id===id&&r.type==='archive');if(i<0)throw Error('Objednávka již není v Archivu.');rows[i]={...rows[i],...patch,updatedAt:Date.now()};pzWriteRecords(rows);return rows[i];}
+    async function pzReviewCall(id,action){const {data,error}=await pzSupabase.auth.getSession();if(error||!data.session)throw Error('Nejdříve se přihlaste.');const response=await fetch('https://poptavkovy-formular.vercel.app/api/review',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+data.session.access_token},body:JSON.stringify({id,action,delayMinutes:Number(pzReviewSettings().delay)})});const result=await response.json();if(!response.ok)throw Error(result.error||'Operace se nezdařila.');pzReviewJobs.set(id,result.job||null);try{localStorage.setItem('pzReviewUiV1',JSON.stringify([...pzReviewJobs]))}catch(_){}return result.job;}
+    let pzReviewDialog=null,pzReviewDialogId=null,pzReviewBusy=false;
+    function pzReviewShell(){if(pzReviewDialog)return pzReviewDialog;const d=document.createElement('dialog');d.id='pz-review-dialog';d.className='pz-rv-dialog';d.setAttribute('aria-label','Odesílání recenzí');document.body.appendChild(d);d.addEventListener('close',()=>{pzReviewDialogId=null});pzReviewDialog=d;return d;}
+    function pzReviewDialogRender(id){
+      const r=pzRecords().find(r=>r.id===id&&r.type==='archive');if(!r)return;
+      const d=pzReviewShell(),s=pzReviewSettings(),m=r.manualReview||{},job=pzReviewJobs.get(id),phone=pzManualPhone(r.phone);
+      const noWa=s.noWhatsApp.split(/[\n,;]/).map(pzManualPhone).includes(phone)||pzRecords().some(x=>phone&&pzManualPhone(x.phone)===phone&&x.manualReview?.noWhatsApp);
+      const due=Number(m.dueAt||0),ready=due&&Date.now()>=due,stamp=v=>pzEsc(pzDate(v));
+      const disabled=pzReviewBusy?'disabled':'';
+      const header=`<header><div><small>OBJEDNÁVKA ${pzEsc(r.kgNumber||'')}</small><h2>Odesílání recenzí</h2><p>${pzEsc(r.customer||'Bez názvu')} · dodáno ${stamp(pzReviewDelivered(r))}</p></div><button type="button" data-rv-close aria-label="Zavřít">×</button></header>`;
+      const labels={scheduled:'Naplánováno',sent:'Odesláno',delivered:'Doručeno',canceled:'Zrušeno',pending:'Čeká na ověření správcem',error:'Chyba plánování',bounced:'Nedoručeno',failed:'Odeslání selhalo',complained:'Označeno jako spam'};
+      let email='';
+      if(s.email){email=`<section><h3>E-mail</h3><p>Automatické odeslání · ${pzEsc(r.email||'E-mail chybí')}</p>${job?`<p role="status"><strong>${pzEsc(labels[job.status]||job.status)}</strong>${job.scheduledAt?' · '+stamp(Date.parse(job.scheduledAt)):''}</p><button type="button" class="pz-mini-btn" data-rv-email="status" ${disabled}>Obnovit stav</button>${job.status==='scheduled'?` <button type="button" class="pz-mini-btn" data-rv-email="cancel" ${disabled}>Zrušit e-mail</button>`:''}`:`<button type="button" class="pz-mini-btn" data-rv-email="schedule" ${disabled||(!r.email?'disabled':'')}>Naplánovat e-mail za ${Number(s.delay)} min</button>`}</section>`;}
+      const text=encodeURIComponent(pzManualText(r)),ios=/iPad|iPhone|iPod/.test(navigator.userAgent);
+      const manual=(channel,title,enabled)=>{
+        if(!enabled)return '';const sent=m.sentAt&&(m.channel===channel||!m.channel),blocked=channel==='whatsapp'&&noWa;
+        const href=phone?(channel==='whatsapp'?'https://wa.me/'+phone.slice(1)+'?text='+text:'sms:'+phone+(ios?'&':'?')+'body='+text):'';
+        return `<section><h3>${title}</h3><p>Ruční odeslání z telefonu · ${pzEsc(r.phone||'Telefon chybí')}</p>${!phone?'<p>Doplňte platné telefonní číslo.</p>':blocked?'<p>U tohoto čísla je označeno „Nemá WhatsApp“.</p>':sent?`<p>✓ Označeno jako odeslané ${stamp(m.sentAt)}</p>`:ready?`<a class="pz-mini-btn" href="${pzEsc(href)}" ${channel==='whatsapp'?'target="_blank" rel="noopener noreferrer"':''} data-rv-compose="${channel}">Otevřít ${title}</a> <button type="button" class="pz-mini-btn" data-rv-sent="${channel}">Označit jako odeslané</button>`:`<p>Čeká do ${stamp(due)}.</p>`}</section>`;
+      };
+      d.innerHTML=header+`<div class="pz-rv-body"><p>Vyberte způsob. E-mail odešle systém; WhatsApp a SMS potvrdíte v telefonu. Příprava zpráv: ${stamp(due)}.</p>${email}${manual('whatsapp','WhatsApp',s.whatsapp)}${manual('sms','SMS',s.sms)}${!s.email&&!s.whatsapp&&!s.sms?'<p>Všechny možnosti jsou vypnuté v Nastavení → Odesílání recenzí.</p>':''}<small>Otevření zprávy neznamená odeslání. SMS může mít více částí a řídí se Vaším tarifem.</small><div id="pz-rv-message" role="status"></div></div>`;
+      pzReviewDialogId=id;if(!d.open)d.showModal();
     }
-    function pzReviewMarkup(r){
-      const job=pzReviewJobs.get(r.id);
-      if(job===undefined)return `<button type="button" class="pz-mini-btn" data-review-schedule="${pzEsc(r.id)}">Potvrdit dodání · recenze za 5 minut</button>`;
-      if(!job)return `<button type="button" class="pz-mini-btn" data-review-schedule="${pzEsc(r.id)}">Potvrdit dodání · recenze za 5 minut</button>`;
-      const labels={scheduled:'Žádost naplánována',sent:'Odeslána',delivered:'Doručena',canceled:'Žádost zrušena',pending:'Čeká na ověření správcem',error:'Chyba plánování',bounced:'Nedoručeno',complained:'Označeno jako spam',failed:'Odeslání selhalo'};
-      return `<div class="pz-review-state"><button type="button" class="pz-mini-btn" disabled style="background:#e5e7eb;color:#6b7280;border-color:#d1d5db;cursor:default;opacity:1">✓ Dodání potvrzeno</button><br>Dodáno ${pzEsc(pzDate(job.deliveredAt))}<br>${pzEsc(labels[job.status]||job.status)}${job.status==='scheduled'?' · '+pzEsc(pzDate(job.scheduledAt)):''}<br><button type="button" class="pz-mini-btn" data-review-status="${pzEsc(r.id)}">Obnovit stav</button>${job.status==='scheduled'?` <button type="button" class="pz-mini-btn" data-review-cancel="${pzEsc(r.id)}">Zrušit žádost</button>`:''}</div>`;
+    function pzReviewSettingsPanel(){
+      const host=$('pz-library-content');if(!host)return;const s=pzReviewSettings();
+      const numbers=[...new Set([...s.noWhatsApp.split(/[\n,;]/),...pzRecords().filter(r=>r.manualReview?.noWhatsApp).map(r=>r.phone)].map(pzManualPhone).filter(Boolean))].join('\n');
+      host.innerHTML=`<div class="pz-rv-settings"><button type="button" class="pz-s9-back" data-rv-settings-back>← Zpět do Nastavení</button><h3>Odesílání recenzí</h3><p>Nastavení v tomto zařízení. Změny platí pro nová potvrzení a nové e-maily; stávající termíny zůstávají.</p><label>Odstup všech tří možností (minuty)<input id="pz-rv-delay" type="number" min="1" max="43200" step="1" value="${Number(s.delay)}"></label><small>Nyní testovací režim 5 minut. Pro 2 dny nastavte 2880 minut.</small>${[['email','E-mail – automatické odeslání'],['whatsapp','WhatsApp – ruční odeslání'],['sms','SMS – ruční odeslání']].map(([key,label])=>`<label><input type="checkbox" id="pz-rv-${key}" ${s[key]?'checked':''}> ${label}</label>`).join('')}<label>Telefonní čísla bez WhatsAppu<textarea id="pz-rv-nowa" rows="4" placeholder="Jedno číslo na řádek, např. +420773214618">${pzEsc(numbers)}</textarea></label><button type="button" class="pz-mini-btn" data-rv-settings-save>Uložit nastavení</button><p id="pz-rv-settings-status" role="status"></p></div>`;
     }
     document.addEventListener('click',async e=>{
-      const b=e.target.closest('[data-review-status],[data-review-schedule],[data-review-cancel]');if(!b)return;
+      const b=e.target.closest('[data-rv-open],[data-rv-close],[data-rv-email],[data-rv-sent],[data-rv-compose],#pz-rv-settings-open,[data-rv-settings-back],[data-rv-settings-save]');if(!b)return;
       e.stopPropagation();
-      const action=b.hasAttribute('data-review-schedule')?'schedule':b.hasAttribute('data-review-cancel')?'cancel':'status';
-      const id=b.getAttribute('data-review-'+action);
-      if(action==='schedule'&&!confirm('Potvrdit skutečné dodání objednávky? Za 5 minut zákazníkovi odejde žádost o recenzi.'))return;
-      if(action==='cancel'&&!confirm('Zrušit naplánovanou žádost o recenzi?'))return;
-      b.disabled=true;
       try{
-        if(action==='schedule'){
-          const r=pzRecords().find(r=>r.id===id);if(!r||!await pzCloudSaveRecord(r))throw Error('Objednávku nejprve synchronizujte do cloudu.');
+        if(b.id==='pz-rv-settings-open'){pzReviewSettingsPanel();return;}
+        if(b.hasAttribute('data-rv-settings-back')){$('pz-library-content').innerHTML='';pzRenderLibrary();return;}
+        if(b.hasAttribute('data-rv-settings-save')){
+          const delay=Number($('pz-rv-delay').value);if(!Number.isInteger(delay)||delay<1||delay>43200)throw Error('Zadejte 1 až 43200 minut.');
+          const raw=$('pz-rv-nowa').value.split(/[\n,;]/).map(v=>v.trim()).filter(Boolean);if(raw.some(v=>!pzManualPhone(v)))throw Error('Zkontrolujte čísla bez WhatsAppu.');
+          const cfg={delay,email:$('pz-rv-email').checked,whatsapp:$('pz-rv-whatsapp').checked,sms:$('pz-rv-sms').checked,noWhatsApp:[...new Set(raw.map(pzManualPhone))].join('\n')};
+          localStorage.setItem('pzReviewSettingsV2',JSON.stringify(cfg));
+          const rows=pzRecords().map(r=>r.manualReview?.noWhatsApp?{...r,manualReview:{...r.manualReview,noWhatsApp:false},updatedAt:Date.now()}:r);pzWriteRecords(rows);
+          $('pz-rv-settings-status').textContent='Nastavení uloženo.';return;
         }
-        const job=await pzReviewCall(id,action);pzReviewJobs.set(id,job||null);try{localStorage.setItem('pzReviewUiV1',JSON.stringify([...pzReviewJobs].map(([key,value])=>[key,value?{status:value.status,deliveredAt:value.deliveredAt,scheduledAt:value.scheduledAt}:null])))}catch(_){}pzRenderLibrary();
-      }catch(err){showToast(err.message);}finally{b.disabled=false;}
-    });
-
-    // Manual review channels: opening a composer never means a message was sent.
-    function pzManualPhone(raw){
-      let n=String(raw||'').replace(/[\s().-]/g,'');
-      if(n.startsWith('00'))n='+'+n.slice(2);
-      if(/^\d{9}$/.test(n))n='+420'+n;
-      return /^\+[1-9]\d{7,14}$/.test(n)?n:null;
-    }
-    function pzManualText(r){
-      const name=String(r.customer||'').trim();
-      const greeting=name&&name!=='Bez názvu'?'Vážený/á pane/paní '+name+',':'Dobrý den,';
-      return greeting+'\n\nděkujeme, že jste si pro svou objednávku vybrali naši společnost. Budeme rádi za Vaši recenzi:\n\nGoogle: https://g.page/r/CcKthFF6lz62EBE/review\nFirmy.cz: https://www.firmy.cz/detail/1971252-pila-zeleznice-pavel-fidrmuc-zeleznice.html#pridat-hodnoceni\n\nDěkujeme, že pomáháte dalším zákazníkům.\nPila Železnice';
-    }
-    function pzManualContent(r){
-      const m=r.manualReview,phone=pzManualPhone(r.phone),id=pzEsc(r.id);
-      const noWa=pzRecords().some(x=>pzManualPhone(x.phone)===phone&&phone&&x.manualReview?.noWhatsApp===true);
-      const pref=`<label style="display:block;margin-top:8px"><input type="checkbox" data-mr-nowa="${id}" ${noWa?'checked':''}> Nemá WhatsApp</label>`;
-      if(!phone)return '<strong>WhatsApp / SMS</strong><div>Doplňte platné telefonní číslo zákazníka včetně předvolby.</div>';
-      if(!m?.deliveredAt)return `<strong>WhatsApp / SMS · ruční odeslání</strong><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"><select data-mr-delay="${id}" aria-label="Odstup žádosti o recenzi"><option value="2880">Za 2 dny</option><option value="5">Test: za 5 minut</option></select><button type="button" class="pz-mini-btn" data-mr-confirm="${id}">Potvrdit dodání pro WhatsApp / SMS</button></div>${pref}`;
-      const date=ts=>pzEsc(pzDate(ts));
-      const status=`<button type="button" disabled class="pz-mini-btn" style="background:#e5e7eb;color:#6b7280;opacity:1">✓ Dodání potvrzeno</button><div>Dodáno ${date(m.deliveredAt)} · připraveno ${date(m.dueAt)}</div>`;
-      if(m.sentAt)return status+`<div>✓ Ručně označeno jako odeslané ${date(m.sentAt)} (${m.channel==='whatsapp'?'WhatsApp':'SMS'}).</div>`;
-      if(Date.now()<Number(m.dueAt))return status+'<div>Čeká na čas odeslání. Zprávu odešlete ručně po zpřístupnění tlačítek.</div>'+`<button type="button" class="pz-mini-btn" data-mr-reset="${id}">Zrušit přípravu</button>`+pref;
-      const text=encodeURIComponent(pzManualText(r));
-      const ios=/iPad|iPhone|iPod/.test(navigator.userAgent);
-      const sms='sms:'+phone+(ios?'&':'?')+'body='+text;
-      return status+`<div style="color:#245c32;font-weight:700">Připraveno k odeslání</div><div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0">${noWa?'':`<a class="pz-mini-btn" style="text-decoration:none" target="_blank" rel="noopener noreferrer" data-mr-open="${id}" data-mr-channel="whatsapp" href="https://wa.me/${phone.slice(1)}?text=${text}">Otevřít WhatsApp</a>`}<a class="pz-mini-btn" style="text-decoration:none" data-mr-open="${id}" data-mr-channel="sms" href="${pzEsc(sms)}">Otevřít SMS</a></div><small>Odeslání potvrďte v telefonu. SMS se řídí Vaším tarifem a může mít více částí.</small><div style="margin-top:8px"><select data-mr-sent-channel="${id}" aria-label="Použitý kanál">${noWa?'':'<option value="whatsapp">WhatsApp</option>'}<option value="sms" ${m.lastOpened==='sms'?'selected':''}>SMS</option></select> <button type="button" class="pz-mini-btn" data-mr-sent="${id}">Označit jako odeslané</button></div>`+pref;
-    }
-    function pzManualMarkup(r){return `<section data-mr-card="${pzEsc(r.id)}" style="margin-top:12px;border-top:1px solid #d9e5dc;padding-top:12px;font-size:13px;line-height:1.7">${pzManualContent(r)}</section>`;}
-    function pzManualSave(id,patch){
-      const rows=pzRecords(),i=rows.findIndex(r=>r.id===id&&r.type==='archive');
-      if(i<0)throw Error('Objednávka již není v Archivu.');
-      rows[i]={...rows[i],manualReview:{...(rows[i].manualReview||{}),...patch},updatedAt:Date.now()};
-      pzWriteRecords(rows);return rows[i];
-    }
-    document.addEventListener('change',e=>{
-      const b=e.target.closest('[data-mr-nowa]');if(!b)return;
-      try{
-        const rec=pzRecords().find(r=>r.id===b.dataset.mrNowa),phone=pzManualPhone(rec?.phone);
-        const rows=pzRecords().map(r=>phone&&pzManualPhone(r.phone)===phone?{...r,manualReview:{...(r.manualReview||{}),noWhatsApp:b.checked},updatedAt:Date.now()}:r);
-        pzWriteRecords(rows);pzRenderLibrary();
-      }catch(err){showToast(err.message);}
-    });
-    document.addEventListener('click',e=>{
-      const b=e.target.closest('[data-mr-confirm],[data-mr-reset],[data-mr-sent],[data-mr-open]');if(!b)return;
-      e.stopPropagation();
-      const card=b.closest('[data-mr-card]'),id=card?.dataset.mrCard;
-      try{
-        const r=pzRecords().find(r=>r.id===id&&r.type==='archive');if(!r)throw Error('Objednávka nebyla nalezena.');
-        if(b.hasAttribute('data-mr-open')){
-          if(!r.manualReview?.dueAt||Date.now()<r.manualReview.dueAt||r.manualReview.sentAt){e.preventDefault();throw Error('Zpráva zatím není připravená nebo je označena jako odeslaná.');}
-          const rec=pzManualSave(id,{lastOpened:b.dataset.mrChannel});
-          const select=card.querySelector('[data-mr-sent-channel]');if(select)select.value=rec.manualReview.lastOpened;
-          return; // Keep the trusted link's default action; never send automatically.
+        if(b.hasAttribute('data-rv-close')){pzReviewDialog.close();return;}
+        if(b.hasAttribute('data-rv-open')){
+          const id=b.dataset.rvOpen;let r=pzRecords().find(r=>r.id===id&&r.type==='archive');if(!r)throw Error('Objednávka nebyla nalezena.');
+          if(!pzReviewDelivered(r)){
+            if(!confirm('Potvrdit dodání objednávky a otevřít možnosti zaslání recenze?'))return;
+            const now=Date.now();r=pzReviewSave(id,{reviewDelivery:{at:now},manualReview:{...(r.manualReview||{}),deliveredAt:now,dueAt:now+Number(pzReviewSettings().delay)*60000}});
+          }else if(!r.manualReview?.dueAt){const at=pzReviewDelivered(r);r=pzReviewSave(id,{manualReview:{...(r.manualReview||{}),deliveredAt:at,dueAt:at+Number(pzReviewSettings().delay)*60000}});}
+          pzRenderLibrary();pzReviewDialogRender(id);return;
         }
-        if(b.hasAttribute('data-mr-confirm')){
-          const minutes=Number(card.querySelector('[data-mr-delay]')?.value);
-          if(![5,2880].includes(minutes)||!pzManualPhone(r.phone))throw Error('Neplatný čas nebo telefon.');
-          if(!confirm('Potvrdit dodání? WhatsApp / SMS bude připravena '+(minutes===5?'za 5 minut':'za 2 dny')+'. E-mailové odesílání se tím nemění.'))return;
-          const now=Date.now();pzManualSave(id,{deliveredAt:now,dueAt:now+minutes*60000,sentAt:null,channel:null});
-        }else if(b.hasAttribute('data-mr-reset')){
-          if(!confirm('Zrušit přípravu WhatsApp / SMS?'))return;
-          pzManualSave(id,{deliveredAt:null,dueAt:null,sentAt:null,channel:null});
-        }else{
-          if(!r.manualReview?.dueAt||Date.now()<r.manualReview.dueAt)throw Error('Zpráva ještě není připravená.');
-          if(!confirm('Potvrzujete, že jste zprávu skutečně odeslali v telefonu?'))return;
-          pzManualSave(id,{sentAt:Date.now(),channel:card.querySelector('[data-mr-sent-channel]')?.value==='sms'?'sms':'whatsapp'});
+        const id=pzReviewDialogId,r=pzRecords().find(r=>r.id===id&&r.type==='archive');if(!r)throw Error('Objednávka není v Archivu.');
+        if(b.hasAttribute('data-rv-compose')){
+          if(Date.now()<Number(r.manualReview?.dueAt||Infinity)){e.preventDefault();throw Error('Ještě neuplynul nastavený odstup.');}
+          return;
         }
-        pzRenderLibrary();
-      }catch(err){if(b.tagName==='A')e.preventDefault();showToast(err.message);}
+        if(b.hasAttribute('data-rv-sent')){
+          if(Date.now()<Number(r.manualReview?.dueAt||Infinity))throw Error('Ještě neuplynul nastavený odstup.');
+          if(!confirm('Potvrzujete skutečné odeslání zprávy v telefonu?'))return;
+          pzReviewSave(id,{manualReview:{...r.manualReview,sentAt:Date.now(),channel:b.dataset.rvSent}});pzReviewDialogRender(id);return;
+        }
+        if(pzReviewBusy)return;
+        const action=b.dataset.rvEmail;
+        if(action==='schedule'&&!confirm('Naplánovat automatický e-mail zákazníkovi za '+Number(pzReviewSettings().delay)+' minut?'))return;
+        if(action==='cancel'&&!confirm('Zrušit naplánovaný e-mail?'))return;
+        pzReviewBusy=true;pzReviewDialogRender(id);
+        try{if(action==='schedule'&&!await pzCloudSaveRecord(r))throw Error('Nejdříve synchronizujte objednávku.');await pzReviewCall(id,action);}finally{pzReviewBusy=false;}
+        pzReviewDialogRender(id);
+      }catch(err){if(b.tagName==='A')e.preventDefault();pzReviewBusy=false;if(pzReviewDialog?.open&&pzReviewDialogId)pzReviewDialogRender(pzReviewDialogId);const out=document.getElementById('pz-rv-message')||document.getElementById('pz-rv-settings-status');if(out)out.textContent=err.message;else showToast(err.message);}
     });
-    setInterval(()=>{
-      document.querySelectorAll('[data-mr-card]').forEach(card=>{
-        const r=pzRecords().find(r=>r.id===card.dataset.mrCard&&r.type==='archive');
-        if(r?.manualReview?.dueAt&&Date.now()>=r.manualReview.dueAt&&!r.manualReview.sentAt&&!card.querySelector('[data-mr-open]'))card.innerHTML=pzManualContent(r);
-      });
-    },10000);
+    setInterval(()=>{if(!pzReviewDialog?.open||!pzReviewDialogId||pzReviewBusy||pzReviewDialog.querySelector('[data-rv-compose]'))return;const r=pzRecords().find(r=>r.id===pzReviewDialogId);if(r?.manualReview?.dueAt&&Date.now()>=r.manualReview.dueAt&&!r.manualReview.sentAt)pzReviewDialogRender(pzReviewDialogId)},10000);
 
     function pzArchiveDelivery(r){return (r.snapshot?.state?.cart||[]).find(i=>i&&i.type==='delivery')||null;}
     function pzArchiveDisplayAddress(r){const delivery=pzArchiveDelivery(r);return delivery?pzDeliveryAddress(delivery)||r.address:r.address;}
@@ -6890,11 +6862,11 @@ window.pzSetSyncStatus=function(status){const b=document.getElementById("pz-sync
       const dial=phoneText.replace(/[\s().-]/g,'');
       const phoneHtml=/^\+?\d{3,15}$/.test(dial)?`<a class="pz-ac-phone" onclick="event.stopPropagation()" href="tel:${pzEsc(dial)}" aria-label="Zavolat na ${pzEsc(phoneText)}">${icon('phone')}<span>${pzEsc(phoneText)}</span></a>`:`<span>${icon('phone')}${pzEsc(phoneText||'Telefon neuveden')}</span>`;
 
-      return `<article class="pz-record pz-archive-compact" data-open-record="${id}"><div class="pz-ac-heading"><strong class="pz-ac-name">${pzEsc(pzArchiveCustomer(r))}</strong><span class="pz-ac-date">${pzDate(r.archivedAt)}</span><span class="pz-ac-status">${icon('check')}Archivováno</span>${r.kgNumber?`<span class="pz-ac-kg">${pzEsc(r.kgNumber)}</span>`:''}</div><div class="pz-ac-price"><strong>${fmtMoney(Number(r.total)||0)}</strong><small>s DPH</small><div class="pz-ac-price-net">${fmtMoney(pzArchiveWithoutVat(r))} <small>bez DPH</small></div></div><div class="pz-ac-details">${phoneHtml}<span>${icon('pin')}${pzEsc(pzArchiveDisplayAddress(r)||'Adresa neuvedena')}</span></div><span class="pz-ac-count">${icon('layers')}${count} ${items}</span><div class="pz-ac-actions"><button type="button" class="pz-ac-open" data-archive-open="${id}">${icon('file')}Otevřít kalkulaci</button><button type="button" class="pz-ac-trash" data-trash="${id}" title="Přesunout do koše" aria-label="Přesunout kalkulaci do koše">${icon('trash')}</button></div>${pzArchiveItemNotesHtml(r)}<div style="grid-column:1/-1;padding-top:8px;line-height:1.7">${pzReviewMarkup(r)}${pzManualMarkup(r)}</div></article>`;
+      return `<article class="pz-record pz-archive-compact${pzReviewDelivered(r)?' pz-rv-delivered':''}" data-open-record="${id}"><div class="pz-ac-heading"><strong class="pz-ac-name">${pzEsc(pzArchiveCustomer(r))}</strong><span class="pz-ac-date">${pzDate(r.archivedAt)}</span><span class="pz-ac-status">${icon('check')}Archivováno</span>${r.kgNumber?`<span class="pz-ac-kg">${pzEsc(r.kgNumber)}</span>`:''}</div><div class="pz-ac-price"><strong>${fmtMoney(Number(r.total)||0)}</strong><small>s DPH</small><div class="pz-ac-price-net">${fmtMoney(pzArchiveWithoutVat(r))} <small>bez DPH</small></div></div><div class="pz-ac-details">${phoneHtml}<span>${icon('pin')}${pzEsc(pzArchiveDisplayAddress(r)||'Adresa neuvedena')}</span></div><span class="pz-ac-count">${icon('layers')}${count} ${items}</span><div class="pz-ac-actions"><button type="button" class="pz-ac-open" data-archive-open="${id}">${icon('file')}Otevřít kalkulaci</button><button type="button" class="pz-ac-trash" data-trash="${id}" title="Přesunout do koše" aria-label="Přesunout kalkulaci do koše">${icon('trash')}</button></div>${pzArchiveItemNotesHtml(r)}<div style="grid-column:1/-1;padding-top:8px;line-height:1.7">${pzReviewMarkup(r)}</div></article>`;
     }
     function pzRecordHtml(r){if(r.type==='archive')return pzArchiveCompactHtml(r);const when=pzDate(r.type==='archive'?r.archivedAt:r.type==='trash'?r.deletedAt:r.updatedAt);const label=r.type==='draft'?'Koncept':r.type==='archive'?'Archivováno':'V koši';const kg=r.kgNumber?`<span class="pz-record-type">${pzEsc(r.kgNumber)}</span>`:'';const itemNotes=pzArchiveItemNotesHtml(r);return `<article class="pz-record" data-open-record="${r.id}"><div class="pz-record-main"><strong>${pzEsc(r.customer||'Bez názvu')}</strong><span>${when}</span><span class="pz-record-type">${label}</span>${kg}</div><div class="pz-record-price"><strong>${fmtMoney(Number(r.total)||0)}</strong><span>s DPH</span></div><div class="pz-record-summary"><span>☎ <b>${pzEsc(r.phone||'Telefon neuveden')}</b></span><span>⌖ ${pzEsc(pzArchiveDisplayAddress(r)||'Adresa neuvedena')}</span><span>▤ <b>${r.itemCount||0} položek</b></span></div>${itemNotes}<div class="pz-record-actions">${r.type==='trash'?`<button class="pz-mini-btn" data-restore="${r.id}" type="button">Obnovit</button><button class="pz-mini-btn danger" data-forever="${r.id}" type="button">Smazat trvale</button>`:`<button class="pz-mini-btn danger" data-trash="${r.id}" type="button">Přesunout do koše</button>`}</div></article>`}
     function pzLibraryTools(mode){if(mode==='settings'||mode==='drafts')return '';if(mode==='trash')return '<div class="pz-trash-toolbar"><button class="pz-mini-btn danger" id="pz-empty-trash" type="button">Vysypat koš</button></div>';return `<div class="pz-library-tools"><input class="pz-search-wide" id="pz-lib-search" type="search" placeholder="Hledat jméno, telefon, adresu, firmu nebo e-mail…"><input id="pz-lib-from" type="date" title="Datum od"><input id="pz-lib-to" type="date" title="Datum do"><select id="pz-lib-sort"><option value="new">Nejnovější</option><option value="old">Nejstarší</option><option value="az">Zákazník A–Z</option><option value="high">Cena nejvyšší</option><option value="low">Cena nejnižší</option></select></div>`}
-    function pzRenderLibrary(){const content=$('pz-library-content');if(!content)return;const titles={drafts:['Koncepty','Rozpracované kalkulace se ukládají automaticky.'],archive:['Archiv','Dokončené kalkulace bezpečně na jednom místě.'],trash:['Koš','Smazané kalkulace můžete obnovit nebo trvale odstranit.'],settings:['Nastavení','Nastavení aplikace.']};$('pz-library-title').textContent=titles[pzLibraryMode][0];$('pz-library-sub').textContent=titles[pzLibraryMode][1];if(pzLibraryMode==='settings'){if(content.querySelector('.pz-s10-panel'))return;content.innerHTML=window.pzSettingsMarkup||'';window.pzSettingsRefresh?.();return}content.innerHTML=pzLibraryTools(pzLibraryMode)+'<div class="pz-library-list" id="pz-library-list"></div>';const refresh=()=>{let rows=pzRecords().filter(r=>r.type===(pzLibraryMode==='drafts'?'draft':pzLibraryMode));const q=($('pz-lib-search')?.value||'').trim().toLocaleLowerCase('cs');const f=$('pz-lib-from')?.value,t=$('pz-lib-to')?.value,sort=$('pz-lib-sort')?.value||'new';if(q)rows=rows.filter(r=>[r.customer,r.phone,r.address,r.company,r.email].some(v=>String(v||'').toLocaleLowerCase('cs').includes(q)));if(f)rows=rows.filter(r=>new Date(r.archivedAt||r.deletedAt||r.updatedAt||0)>=new Date(f+'T00:00:00'));if(t)rows=rows.filter(r=>new Date(r.archivedAt||r.deletedAt||r.updatedAt||0)<=new Date(t+'T23:59:59'));rows.sort((a,b)=>sort==='old'?(a.updatedAt||0)-(b.updatedAt||0):sort==='az'?String(a.customer||'').localeCompare(String(b.customer||''),'cs'):sort==='high'?(b.total||0)-(a.total||0):sort==='low'?(a.total||0)-(b.total||0):(b.updatedAt||0)-(a.updatedAt||0));const list=$('pz-library-list');list.innerHTML=rows.length?rows.map(pzRecordHtml).join(''):`<div class="pz-empty-state"><strong>${pzLibraryMode==='trash'?'Koš je prázdný':pzLibraryMode==='archive'?'Archiv je zatím prázdný':'Žádné koncepty'}</strong>${pzLibraryMode==='drafts'?'Rozpracované kalkulace se zde objeví automaticky.':'Zatím tu není žádná kalkulace.'}</div>`;list.querySelectorAll('[data-open-record]').forEach(el=>el.onclick=e=>{if(e.target.closest('button,a,input,select,label,[data-mr-card]')||pzLibraryMode==='trash')return;pzOpenRecord(el.dataset.openRecord)});list.querySelectorAll('.pz-ac-phone').forEach(a=>a.addEventListener('click',e=>{e.stopPropagation()}));list.querySelectorAll('[data-archive-open]').forEach(b=>b.onclick=e=>{e.stopPropagation();pzOpenRecord(b.dataset.archiveOpen)});list.querySelectorAll('[data-trash]').forEach(b=>b.onclick=e=>{e.stopPropagation();pzMoveTrash(b.dataset.trash)});list.querySelectorAll('[data-restore]').forEach(b=>b.onclick=e=>{e.stopPropagation();pzRestoreTrash(b.dataset.restore)});list.querySelectorAll('[data-forever]').forEach(b=>b.onclick=e=>{e.stopPropagation();pzDeleteForever(b.dataset.forever)})};['pz-lib-search','pz-lib-from','pz-lib-to','pz-lib-sort'].forEach(id=>$(id)?.addEventListener(id==='pz-lib-search'?'input':'change',refresh));$('pz-empty-trash')?.addEventListener('click',async ()=>{if(!confirm('Opravdu chcete koš trvale vysypat?'))return;const trashRows=pzRecords().filter(r=>r.type==='trash');localStorage.setItem(PZ_RECORDS_KEY,JSON.stringify(pzRecords().filter(r=>r.type!=='trash')));pzUpdateCounts();await Promise.all(trashRows.map(r=>pzCloudDeleteRecord(r.id)));pzRenderLibrary()});refresh()}
+    function pzRenderLibrary(){const content=$('pz-library-content');if(!content)return;const titles={drafts:['Koncepty','Rozpracované kalkulace se ukládají automaticky.'],archive:['Archiv','Dokončené kalkulace bezpečně na jednom místě.'],trash:['Koš','Smazané kalkulace můžete obnovit nebo trvale odstranit.'],settings:['Nastavení','Nastavení aplikace.']};$('pz-library-title').textContent=titles[pzLibraryMode][0];$('pz-library-sub').textContent=titles[pzLibraryMode][1];if(pzLibraryMode==='settings'){if(content.querySelector('.pz-s10-panel,.pz-rv-settings'))return;content.innerHTML=window.pzSettingsMarkup||'';window.pzSettingsRefresh?.();return}content.innerHTML=pzLibraryTools(pzLibraryMode)+'<div class="pz-library-list" id="pz-library-list"></div>';const refresh=()=>{let rows=pzRecords().filter(r=>r.type===(pzLibraryMode==='drafts'?'draft':pzLibraryMode));const q=($('pz-lib-search')?.value||'').trim().toLocaleLowerCase('cs');const f=$('pz-lib-from')?.value,t=$('pz-lib-to')?.value,sort=$('pz-lib-sort')?.value||'new';if(q)rows=rows.filter(r=>[r.customer,r.phone,r.address,r.company,r.email].some(v=>String(v||'').toLocaleLowerCase('cs').includes(q)));if(f)rows=rows.filter(r=>new Date(r.archivedAt||r.deletedAt||r.updatedAt||0)>=new Date(f+'T00:00:00'));if(t)rows=rows.filter(r=>new Date(r.archivedAt||r.deletedAt||r.updatedAt||0)<=new Date(t+'T23:59:59'));rows.sort((a,b)=>sort==='old'?(a.updatedAt||0)-(b.updatedAt||0):sort==='az'?String(a.customer||'').localeCompare(String(b.customer||''),'cs'):sort==='high'?(b.total||0)-(a.total||0):sort==='low'?(a.total||0)-(b.total||0):(b.updatedAt||0)-(a.updatedAt||0));const list=$('pz-library-list');list.innerHTML=rows.length?rows.map(pzRecordHtml).join(''):`<div class="pz-empty-state"><strong>${pzLibraryMode==='trash'?'Koš je prázdný':pzLibraryMode==='archive'?'Archiv je zatím prázdný':'Žádné koncepty'}</strong>${pzLibraryMode==='drafts'?'Rozpracované kalkulace se zde objeví automaticky.':'Zatím tu není žádná kalkulace.'}</div>`;list.querySelectorAll('[data-open-record]').forEach(el=>el.onclick=e=>{if(e.target.closest('button,a,input,select,label,[data-mr-card]')||pzLibraryMode==='trash')return;pzOpenRecord(el.dataset.openRecord)});list.querySelectorAll('.pz-ac-phone').forEach(a=>a.addEventListener('click',e=>{e.stopPropagation()}));list.querySelectorAll('[data-archive-open]').forEach(b=>b.onclick=e=>{e.stopPropagation();pzOpenRecord(b.dataset.archiveOpen)});list.querySelectorAll('[data-trash]').forEach(b=>b.onclick=e=>{e.stopPropagation();pzMoveTrash(b.dataset.trash)});list.querySelectorAll('[data-restore]').forEach(b=>b.onclick=e=>{e.stopPropagation();pzRestoreTrash(b.dataset.restore)});list.querySelectorAll('[data-forever]').forEach(b=>b.onclick=e=>{e.stopPropagation();pzDeleteForever(b.dataset.forever)})};['pz-lib-search','pz-lib-from','pz-lib-to','pz-lib-sort'].forEach(id=>$(id)?.addEventListener(id==='pz-lib-search'?'input':'change',refresh));$('pz-empty-trash')?.addEventListener('click',async ()=>{if(!confirm('Opravdu chcete koš trvale vysypat?'))return;const trashRows=pzRecords().filter(r=>r.type==='trash');localStorage.setItem(PZ_RECORDS_KEY,JSON.stringify(pzRecords().filter(r=>r.type!=='trash')));pzUpdateCounts();await Promise.all(trashRows.map(r=>pzCloudDeleteRecord(r.id)));pzRenderLibrary()});refresh()}
     function pzOpenLibrary(mode){pzSaveActiveDraft();pzLibraryMode=mode;pzRenderLibrary();$('pz-library').classList.add('open');$('pz-library').setAttribute('aria-hidden','false');$('pz-nav-overlay').classList.remove('open')}
     function pzCloseLibrary(){$('pz-library').classList.remove('open');$('pz-library').setAttribute('aria-hidden','true')}
     window.pzRenderLibrary=pzRenderLibrary;
@@ -7138,6 +7110,7 @@ html.pz-dark #pz-app .pz-contact-status{color:#e0ebe2!important}
 (function(){
  const KEY='pz-config-theme-v1';
  window.pzSettingsMarkup="<div class=\"pz-s8-wrap\"><div class=\"pz-s8-group-title\">VZHLED</div><div class=\"pz-s8-card\"><label class=\"pz-s8-row pz-s8-switchrow\" for=\"pz-s8-toggle\"><span class=\"pz-s8-icon\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M20.4 14.5A8.5 8.5 0 0 1 9.5 3.6 8.5 8.5 0 1 0 20.4 14.5Z\"/></svg></span><span class=\"pz-s8-label\"><strong>Tmavý režim</strong><small>Přepnout vzhled konfigurátoru</small></span><input type=\"checkbox\" id=\"pz-s8-toggle\" class=\"pz-s8-input\" role=\"switch\" aria-label=\"Tmavý režim\"><span class=\"pz-s8-track\" aria-hidden=\"true\"><span></span></span></label></div><div class=\"pz-s8-group-title\">KALKULACE A ZÁKAZNÍCI</div><div class=\"pz-s8-card\"><button type=\"button\" id=\"pz-s9-open\" class=\"pz-s8-row pz-s9-open\"><span class=\"pz-s8-icon\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2\"/><circle cx=\"9\" cy=\"7\" r=\"4\"/><path d=\"M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75\"/></svg></span><span class=\"pz-s8-label\"><strong>Kontakty a zákazníci</strong><small>Výběr kontaktů a našeptávání</small></span><span class=\"pz-s8-chevron\" aria-hidden=\"true\">›</span></button><div class=\"pz-s8-row pz-s8-future\" aria-disabled=\"true\"><span class=\"pz-s8-icon\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z\"/><path d=\"M14 2v6h6M8 13h8M8 17h8\"/></svg></span><span class=\"pz-s8-label\"><strong>Dokumenty a nabídky</strong><small>Nastavení výstupních dokumentů</small></span><span class=\"pz-s8-chevron\" aria-hidden=\"true\">›</span></div><div class=\"pz-s8-row pz-s8-future\" aria-disabled=\"true\"><span class=\"pz-s8-icon\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M10 17h4V5H2v12h3m9-9h4l4 4v5h-3M14 17h3\"/><circle cx=\"7.5\" cy=\"17.5\" r=\"2.5\"/><circle cx=\"19.5\" cy=\"17.5\" r=\"2.5\"/></svg></span><span class=\"pz-s8-label\"><strong>Doprava a mapy</strong><small>Mapové podklady a doprava</small></span><span class=\"pz-s8-chevron\" aria-hidden=\"true\">›</span></div></div><div class=\"pz-s8-group-title\">DATA A APLIKACE</div><div class=\"pz-s8-card\"><button type=\"button\" id=\"pz-s10-open\" class=\"pz-s8-row pz-s9-open\"><span class=\"pz-s8-icon\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><ellipse cx=\"12\" cy=\"5\" rx=\"9\" ry=\"3\"/><path d=\"M3 5v7c0 1.7 4 3 9 3M21 5v6M3 12v7c0 1.7 4 3 9 3\"/><path d=\"m16 18 2 2 4-4\"/></svg></span><span class=\"pz-s8-label\"><strong>Záloha a obnovení</strong><small>Koncepty a archiv</small></span><span class=\"pz-s8-chevron\" aria-hidden=\"true\">›</span></button><div class=\"pz-s8-row pz-s8-future\" aria-disabled=\"true\"><span class=\"pz-s8-icon\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M20 7v5h-5M4 17v-5h5\"/><path d=\"M5.6 9A8 8 0 0 1 19 7l1 5M4 12l1 5a8 8 0 0 0 13.4-2\"/></svg></span><span class=\"pz-s8-label\"><strong>Synchronizace</strong><small>Stav propojení a přenosu dat</small></span><span class=\"pz-s8-chevron\" aria-hidden=\"true\">›</span></div><div class=\"pz-s8-row pz-s8-future\" aria-disabled=\"true\"><span class=\"pz-s8-icon\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"M12 11v6M12 7h.01\"/></svg></span><span class=\"pz-s8-label\"><strong>O aplikaci</strong><small>Informace o konfigurátoru</small></span><span class=\"pz-s8-chevron\" aria-hidden=\"true\">›</span></div></div><p class=\"pz-s8-foot\">Další sekce zpřístupníme postupně. Zatím nejsou aktivní.</p></div>";
+ window.pzSettingsMarkup += '<div class="pz-s8-card"><button type="button" id="pz-rv-settings-open" class="pz-s8-row pz-s9-open"><span class="pz-s8-label"><strong>Odesílání recenzí</strong><small>E-mail, WhatsApp, SMS a časový odstup</small></span><span class="pz-s8-chevron" aria-hidden="true">›</span></button></div>';
  function current(){try{return localStorage.getItem(KEY)==='dark'?'dark':'light'}catch(e){return 'light'}}
  function apply(mode){
   const dark=mode==='dark';
@@ -7673,3 +7646,9 @@ html.pz-dark #pz-library-content .pz-s10-clear:hover,html.pz-dark #pz-library-co
   // Avoid interfering with authentication, form values, and autosave.
 })();
 </script>
+<style id="pz-review-unified-style">
+.pz-rv-delivered{background:#ecefee!important;border-color:#c6ceca!important;filter:grayscale(1)}
+.pz-rv-dialog{width:min(620px,calc(100% - 24px));max-height:88vh;overflow:auto;border:1px solid #d1dfd5;border-radius:22px;padding:0;background:#fff;color:#193a26;font:15px Arial,sans-serif;box-shadow:0 20px 80px #0004}
+.pz-rv-dialog::backdrop{background:#132c20a6}.pz-rv-dialog header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;background:#edf4ee;padding:20px 24px}.pz-rv-dialog h2{margin:7px 0;font-size:23px}.pz-rv-dialog header p{margin:8px 0 0}.pz-rv-dialog header button{border:0;background:transparent;color:inherit;font-size:28px;min-width:40px;min-height:40px}.pz-rv-body{padding:0 24px 22px}.pz-rv-body>p{line-height:1.6}.pz-rv-body section{border:1px solid #dbe6dd;border-radius:14px;padding:14px;margin:14px 0;line-height:1.7}.pz-rv-body h3{margin:0;font-size:18px}.pz-rv-body p{margin:7px 0}.pz-rv-body a{display:inline-block}.pz-rv-body button:disabled{opacity:.55}.pz-rv-settings{max-width:620px;margin:auto;line-height:1.7}.pz-rv-settings label{display:block;margin:16px 0}.pz-rv-settings input[type=number],.pz-rv-settings textarea{display:block;width:100%;box-sizing:border-box;padding:12px;border:1px solid #b8cbbb;border-radius:10px;font:inherit}.pz-rv-settings input[type=checkbox]{width:18px;height:18px;vertical-align:middle}
+html.pz-dark .pz-rv-dialog{background:#1d2c22;color:#eef5ef;border-color:#4a6351}html.pz-dark .pz-rv-dialog header{background:#293e30}html.pz-dark .pz-rv-delivered{background:#323a35!important}
+</style>
