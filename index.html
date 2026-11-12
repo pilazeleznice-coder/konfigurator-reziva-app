@@ -6984,8 +6984,8 @@ list.querySelectorAll('[data-ac-trash]').forEach(b=>b.onclick=e=>{
   overlay.querySelector('[data-ac-cancel]').focus();
 });
 list.querySelectorAll('[data-archive-detail]').forEach(b=>b.onclick=e=>{e.stopPropagation();pzaOpen(b.dataset.archiveDetail)});list.querySelectorAll('[data-archive-open]').forEach(b=>b.onclick=e=>{e.stopPropagation();pzOpenRecord(b.dataset.archiveOpen)});list.querySelectorAll('[data-trash]').forEach(b=>b.onclick=e=>{e.stopPropagation();pzMoveTrash(b.dataset.trash)});list.querySelectorAll('[data-restore]').forEach(b=>b.onclick=e=>{e.stopPropagation();pzRestoreTrash(b.dataset.restore)});list.querySelectorAll('[data-forever]').forEach(b=>b.onclick=e=>{e.stopPropagation();pzDeleteForever(b.dataset.forever)})};if(pzLibraryMode==='archive'){$('pz-filter-toggle')?.addEventListener('click',()=>{const panel=$('pz-filter-expanded'),btn=$('pz-filter-toggle');if(!panel||!btn)return;panel.hidden=!panel.hidden;btn.setAttribute('aria-expanded',String(!panel.hidden));btn.setAttribute('aria-label',panel.hidden?'Rozbalit filtry':'Sbalit filtry');});for(const [key,id] of Object.entries({search:'pz-lib-search',from:'pz-lib-from',to:'pz-lib-to',sort:'pz-lib-sort',status:'pz-lib-status'})){if($(id))$(id).value=pzArchiveFilters[key];}$('pz-lib-reset')?.addEventListener('click',()=>{for(const id of ['pz-lib-search','pz-lib-from','pz-lib-to'])if($(id))$(id).value='';if($('pz-lib-status'))$('pz-lib-status').value='all';if($('pz-lib-sort'))$('pz-lib-sort').value='new';refresh()});}['pz-lib-search','pz-lib-from','pz-lib-to','pz-lib-sort','pz-lib-status'].forEach(id=>$(id)?.addEventListener(id==='pz-lib-search'?'input':'change',refresh));$('pz-empty-trash')?.addEventListener('click',async ()=>{if(!confirm('Opravdu chcete koš trvale vysypat?'))return;const trashRows=pzRecords().filter(r=>r.type==='trash');localStorage.setItem(PZ_RECORDS_KEY,JSON.stringify(pzRecords().filter(r=>r.type!=='trash')));pzUpdateCounts();await Promise.all(trashRows.map(r=>pzCloudDeleteRecord(r.id)));pzRenderLibrary()});refresh()}
-    function pzOpenLibrary(mode){pzSaveActiveDraft();pzLibraryMode=mode;pzRenderLibrary();$('pz-library').classList.add('open');$('pz-library').setAttribute('aria-hidden','false');$('pz-nav-overlay').classList.remove('open')}
-    function pzCloseLibrary(){$('pz-library').classList.remove('open');$('pz-library').setAttribute('aria-hidden','true')}
+    function pzOpenLibrary(mode){window.pzLibraryOpenedFromMenu=!!$('pz-nav-overlay')?.classList.contains('open');pzSaveActiveDraft();pzLibraryMode=mode;pzRenderLibrary();$('pz-library').classList.add('open');$('pz-library').setAttribute('aria-hidden','false');$('pz-nav-overlay').classList.remove('open')}
+    function pzCloseLibrary(){$('pz-library').classList.remove('open');$('pz-library').setAttribute('aria-hidden','true');if(window.pzLibraryOpenedFromMenu){$('pz-nav-overlay').classList.add('open');$('pz-nav-overlay').setAttribute('aria-hidden','false');pzUpdateCounts()}window.pzLibraryOpenedFromMenu=false}
     window.pzRenderLibrary=pzRenderLibrary;
     function pzShowLeaveDialog(){$('pz-leave-dialog')?.classList.add('open');$('pz-leave-dialog')?.setAttribute('aria-hidden','false')}
     function pzHideLeaveDialog(){$('pz-leave-dialog')?.classList.remove('open');$('pz-leave-dialog')?.setAttribute('aria-hidden','true')}
@@ -7694,74 +7694,93 @@ html.pz-dark #pz-library-content .pz-s10-clear:hover,html.pz-dark #pz-library-co
 
 <!-- CFG-016: Android PWA system Back navigation. Independent of calculation storage. -->
 <script id="pz-android-back-navigation">
+/* CFG-017: One-step Android/PWA Back navigation; no changes to stored calculations. */
 (function(){
   'use strict';
-  const ids=['pz-archive-detail','pz-leave-dialog','pz-clear-confirm','pz-3d-modal','pz-cart-modal','pz-library','pz-nav-overlay'];
   const get=id=>document.getElementById(id);
-  const isOpen=id=>!!get(id)?.classList.contains('open');
-  const active=()=>ids.find(isOpen)||null;
-  const key='pzBackLayer';
-  let tracked=null, handlingPop=false, scheduled=false;
-  // A history entry for the main application prevents Android from closing it
-  // when a navigation layer is being dismissed.
-  const base={...(history.state||{}),pzBackBase:true};
-  history.replaceState(base,'',location.href);
-  function armBase(){
-    if(!history.state?.pzBackGuard)history.pushState({...base,pzBackGuard:true},'',location.href);
-  }
-  armBase();
-  function sync(){
-    if(handlingPop)return;
-    const now=active();
-    if(now===tracked)return;
-    if(now){
-      tracked=now;
-      history.pushState({...base,[key]:now,pzBackGuard:true},'',location.href);
-    }else if(tracked){
-      tracked=null;
-      // A layer was closed with an in-app control. Consume its history entry.
-      if(history.state?.[key])history.back();
+  const open=id=>!!get(id)?.classList.contains('open');
+  const layerIds=['pz-nav-overlay','pz-library','pz-cart-modal','pz-3d-modal','pz-clear-confirm','pz-leave-dialog','pz-archive-detail'];
+  const subpages=[['pz-s9-sub','contacts'],['pz-s10-panel','backup'],['pz-rv-settings','reviews']];
+  const base={...(history.state||{}),pzNavBase:true};
+  const navKey='pzNavPath';
+  let tracked=[],busy=false,queued=false;
+  function path(){
+    const p=[];
+    if(open('pz-nav-overlay')||(open('pz-library')&&window.pzLibraryOpenedFromMenu))p.push('menu');
+    if(open('pz-library')){
+      p.push('library:'+String(get('pz-library-title')?.textContent||'').trim());
+      const host=get('pz-library-content');
+      for(const [cls,name] of subpages)if(host?.querySelector('.'+cls)){p.push('settings:'+name);break}
     }
+    if(open('pz-cart-modal'))p.push('cart');
+    if(open('pz-3d-modal'))p.push('3d');
+    if(open('pz-archive-detail'))p.push('archive-detail');
+    if(open('pz-clear-confirm'))p.push('clear-confirm');
+    if(open('pz-leave-dialog'))p.push('leave-dialog');
+    return p;
   }
-  function queueSync(){if(scheduled)return;scheduled=true;setTimeout(()=>{scheduled=false;sync()},0)}
-  function closeLayer(id){
-    const el=get(id);if(!el)return;
-    if(id==='pz-cart-modal'){
-      // Use the existing close button to preserve scroll-lock cleanup.
-      const close=el.querySelector('[data-close-cart],#pz-close-cart,.pz-cart-close,[aria-label="Zavřít"]');
-      if(close){close.click();return}
-      el.classList.remove('open');el.setAttribute('aria-hidden','true');
-      document.documentElement.classList.remove('pz-cart-page-locked');
-      document.body.classList.remove('pz-cart-page-locked');
+  const same=(a,b)=>a.length===b.length&&a.every((v,i)=>v===b[i]);
+  const prefix=(a,b)=>a.length<=b.length&&a.every((v,i)=>v===b[i]);
+  function guard(){
+    if(!history.state?.pzNavGuard)history.pushState({...base,pzNavGuard:true,[navKey]:[]},'',location.href);
+  }
+  history.replaceState({...base,[navKey]:[]},'',location.href);
+  guard();
+  function sync(){
+    if(busy)return;
+    const now=path();
+    if(same(now,tracked))return;
+    if(prefix(now,tracked)&&now.length<tracked.length){
+      tracked=now;
+      if(history.state?.pzNavGuard)history.back();
       return;
     }
-    if(id==='pz-archive-detail'){el.querySelector('[data-pza-close]')?.click();return}
-    if(id==='pz-library'){get('pz-library-close')?.click();return}
-    if(id==='pz-nav-overlay'){get('pz-menu-close')?.click();return}
-    if(id==='pz-leave-dialog'){get('pz-leave-stay')?.click();return}
-    if(id==='pz-clear-confirm'){get('pz-clear-cancel')?.click();return}
-    if(id==='pz-3d-modal'){
-      const btn=el.querySelector('[data-close],.pz-3d-close,[aria-label="Zavřít"]');
-      if(btn){btn.click();return}
-    }
-    el.classList.remove('open');el.setAttribute('aria-hidden','true');
+    tracked=now;
+    history.pushState({...base,pzNavGuard:true,[navKey]:now},'',location.href);
   }
-  window.addEventListener('popstate',function(){
-    handlingPop=true;
-    const id=active();
-    if(id)closeLayer(id);
-    tracked=null;
+  function schedule(){if(queued)return;queued=true;setTimeout(()=>{queued=false;sync()},0)}
+  function closeTop(){
+    const p=path(),last=p[p.length-1];
+    if(!last)return;
+    const click=selector=>{const b=document.querySelector(selector);if(b){b.click();return true}return false};
+    if(last==='settings:contacts')return void click('#pz-s9-back');
+    if(last==='settings:backup')return void click('#pz-s10-back');
+    if(last==='settings:reviews')return void click('[data-rv-settings-back]');
+    if(last==='archive-detail')return void click('#pz-archive-detail [data-pza-close]');
+    if(last==='leave-dialog')return void click('#pz-leave-stay');
+    if(last==='clear-confirm')return void click('#pz-clear-cancel');
+    if(last==='library:'+String(get('pz-library-title')?.textContent||'').trim())return void click('#pz-library-close');
+    if(last==='menu')return void click('#pz-menu-close');
+    if(last==='cart'){
+      if(click('#pz-cart-modal [data-close-cart],#pz-cart-modal #pz-close-cart,#pz-cart-modal .pz-cart-close,#pz-cart-modal [aria-label="Zavřít"]'))return;
+    }
+    if(last==='3d'){
+      if(click('#pz-3d-modal [data-close],#pz-3d-modal .pz-3d-close,#pz-3d-modal [aria-label="Zavřít"]'))return;
+    }
+  }
+  window.addEventListener('popstate',function(event){
+    busy=true;
+    const target=Array.isArray(event.state?.[navKey])?event.state[navKey]:[];
+    const current=path();
+    if(current.length>target.length||!same(current,target))closeTop();
     setTimeout(()=>{
-      handlingPop=false;
-      const remaining=active();
-      if(remaining){tracked=remaining;history.pushState({...base,[key]:remaining,pzBackGuard:true},'',location.href)}
-      else armBase();
+      tracked=path();busy=false;
+      // Keep a guard on the root screen, so Android Back does not exit the PWA.
+      if(!history.state?.pzNavGuard)guard();
+      else if(!same(tracked,target))history.replaceState({...history.state,[navKey]:tracked},'',location.href);
     },0);
   });
-  const observer=new MutationObserver(queueSync);
-  ids.forEach(id=>{const el=get(id);if(el)observer.observe(el,{attributes:true,attributeFilter:['class']})});
-  document.addEventListener('click',queueSync,true);
-  // Avoid interfering with authentication, form values, and autosave.
+  // Observe subpage replacements as well as modal open/close transitions.
+  const observer=new MutationObserver(schedule);
+  for(const id of layerIds){const el=get(id);if(el)observer.observe(el,{attributes:true,attributeFilter:['class']})}
+  const content=get('pz-library-content');if(content)observer.observe(content,{childList:true,subtree:false});
+  document.addEventListener('click',schedule,true);
+  // Escape mirrors a single Back action in settings subpages.
+  document.addEventListener('keydown',e=>{
+    if(e.key!=='Escape'||!path().some(v=>v.startsWith('settings:')))return;
+    if(open('pz-archive-detail')||open('pz-leave-dialog'))return;
+    e.preventDefault();e.stopImmediatePropagation();history.back();
+  },true);
 })();
 </script>
 <style id="pz-review-unified-style">
