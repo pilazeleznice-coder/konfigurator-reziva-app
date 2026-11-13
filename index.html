@@ -3788,6 +3788,18 @@ html.pz-dark #pz-library .pz-ac-status,html.pz-dark #pz-library .pz-ac-kg,html.p
     const PZ_TRANSPORT_VEHICLES=['AK','TRM','TRMS','TRV','TRVS'];
     const PZ_TRANSPORT_MAP={'transport|Do 5 m³':['km','below5'],'transport|Od 5 m³':['km','from5']};
     PZ_TRANSPORT_ZONES.forEach((zone,i)=>PZ_TRANSPORT_VEHICLES.forEach((vehicle,j)=>{if(PZ_TRANSPORT_DEFAULT_RATES[i][j]!==null)PZ_TRANSPORT_MAP['transport|'+zone+' · '+vehicle]=['zone',i,j]}));
+    const PZ_SERVICE_MAP={'services|Hoblování – 1 strana':['planing','1'],'services|Hoblování – 2 strany':['planing','2'],'services|Hoblování – 3 strany':['planing','3'],'services|Hoblování – 4 strany':['planing','4'],'services|Impregnace':['impregnation'],'services|Zaříznutí na míru':['cut'],'services|Sražení hran – 1 plocha':['edge','1'],'services|Sražení hran – 2 plochy':['edge','2']};
+    function pzApplyServicePrices(){
+      const saved=pzReadWoodPrices();
+      for(const [key,path] of Object.entries(PZ_SERVICE_MAP)){
+        if(!Object.prototype.hasOwnProperty.call(saved,key))continue;
+        const price=Number(saved[key]);if(!Number.isFinite(price)||price<0)continue;
+        const def=CONFIG.services[path[0]];if(!def)continue;
+        if(path.length===1)def.price=price;
+        else{const choice=def.choices?.find(c=>c.id===path[1]);if(choice)choice.price=price;}
+      }
+      window.pzRefreshDefaultPrice?.();
+    }
     function pzReadWoodPrices(){try{const v=JSON.parse(localStorage.getItem(PZ_PRICE_KEY)||'{}');return v&&typeof v==='object'&&!Array.isArray(v)?v:{}}catch(_){return {}}}
     function pzApplyTransportPrices(){
       const saved=pzReadWoodPrices();
@@ -3808,7 +3820,7 @@ html.pz-dark #pz-library .pz-ac-status,html.pz-dark #pz-library .pz-ac-kg,html.p
         if(obj)obj[path[path.length-1]]=value;
       });
     }
-    pzApplyWoodPrices();pzApplyTransportPrices();
+    pzApplyWoodPrices();pzApplyTransportPrices();pzApplyServicePrices();
     // Synchronizace ceníku: cloud je autoritativní, lokální kopie je pouze offline záloha.
     let pzCatalogVersion=null,pzCatalogLoaded=false;
     async function pzLoadCloudCatalog(){
@@ -3820,21 +3832,21 @@ html.pz-dark #pz-library .pz-ac-status,html.pz-dark #pz-library .pz-ac-kg,html.p
       pzCatalogLoaded=true;
       if(data){
         const clean={};
-        for(const key of Object.keys({...PZ_PRICE_MAP,...PZ_TRANSPORT_MAP})){
+        for(const key of Object.keys({...PZ_PRICE_MAP,...PZ_TRANSPORT_MAP,...PZ_SERVICE_MAP})){
           if(Object.prototype.hasOwnProperty.call(data.prices||{},key)){
             const value=Number(data.prices[key]);
             if(Number.isFinite(value)&&value>=0)clean[key]=value;
           }
         }
         localStorage.setItem(PZ_PRICE_KEY,JSON.stringify(clean));
-        pzApplyWoodPrices();pzApplyTransportPrices();window.pzRefreshDefaultPrice?.();
+        pzApplyWoodPrices();pzApplyTransportPrices();pzApplyServicePrices();window.pzRefreshDefaultPrice?.();
       }
       window.dispatchEvent(new Event('pz-price-cloud-loaded'));
       return {exists:!!data,version:pzCatalogVersion};
     }
     async function pzSaveCloudCatalog(next){
       const clean={};
-      for(const key of Object.keys({...PZ_PRICE_MAP,...PZ_TRANSPORT_MAP})){
+      for(const key of Object.keys({...PZ_PRICE_MAP,...PZ_TRANSPORT_MAP,...PZ_SERVICE_MAP})){
         if(Object.prototype.hasOwnProperty.call(next,key)){
           const value=Number(next[key]);
           if(!Number.isFinite(value)||value<0)throw new Error('Neplatná cena: '+key);
@@ -3855,11 +3867,11 @@ html.pz-dark #pz-library .pz-ac-status,html.pz-dark #pz-library .pz-ac-kg,html.p
         pzCatalogVersion=Number(data[0].version);
       }
       localStorage.setItem(PZ_PRICE_KEY,JSON.stringify(clean));
-      pzApplyWoodPrices();pzApplyTransportPrices();window.pzRefreshDefaultPrice?.();
+      pzApplyWoodPrices();pzApplyTransportPrices();pzApplyServicePrices();window.pzRefreshDefaultPrice?.();
       window.dispatchEvent(new Event('pz-price-cloud-loaded'));
       return pzCatalogVersion;
     }
-    window.pzWoodPriceCatalog={read:pzReadWoodPrices,keys:Object.keys({...PZ_PRICE_MAP,...PZ_TRANSPORT_MAP}),load:pzLoadCloudCatalog,save:pzSaveCloudCatalog};
+    window.pzWoodPriceCatalog={read:pzReadWoodPrices,keys:Object.keys({...PZ_PRICE_MAP,...PZ_TRANSPORT_MAP,...PZ_SERVICE_MAP}),load:pzLoadCloudCatalog,save:pzSaveCloudCatalog};
     let pzPriceRefreshTimer=0;
     function pzRefreshCloudOnReturn(){
       if(document.hidden||!navigator.onLine||document.querySelector('#pz-price-save'))return;
@@ -8195,7 +8207,7 @@ html.pza-open{overflow:hidden}
 <script id="pz-pricing-preview-script">
 (function(){
 'use strict';
-// Cloudový ceník řeziva a dopravy; služby zatím zůstávají náhledem.
+// Cloudový ceník řeziva, dopravy a služeb.
 const items=[
  ['smrk','Smrk','Trámy',9500,'Kč/m³'],['smrk','Smrk','Prkna stejně široká',7500,'Kč/m³'],['smrk','Smrk','Prkna různě široká 3–5 m',7000,'Kč/m³'],['smrk','Smrk','Prkna různě široká 0,8–2,5 m',5500,'Kč/m³'],['smrk','Smrk','Fošny – standard',9500,'Kč/m³'],['smrk','Smrk','Fošny – 3,2 cm',8500,'Kč/m³'],['smrk','Smrk','Střešní latě 3–5 m',23,'Kč/bm'],['smrk','Smrk','Střešní latě 2 m',18,'Kč/bm'],['smrk','Smrk','Odřezky',800,'Kč/ks'],
  ['modrin','Modřín','Trámy',11000,'Kč/m³'],['modrin','Modřín','Prkna různě široká 3–5 m',8500,'Kč/m³'],['modrin','Modřín','Fošny',11000,'Kč/m³'],
@@ -8211,7 +8223,7 @@ const rates=[[450,600,750,900,1050],[1200,1600,2000,2400,2800],[1950,2600,3250,3
 limits.forEach((zone,i)=>vehicles.forEach((vehicle,j)=>{if(rates[i][j]!==null)items.push(['transport','Doprava',zone+' · '+vehicle,rates[i][j],'Kč/zóna']);}));
 let values=items.map(x=>x[3]),tab='wood',wood='all',search='';
 const priceStore=window.pzWoodPriceCatalog;
-if(priceStore){const saved=priceStore.read();items.forEach((x,i)=>{const key=x[0]+'|'+x[2];if(x[0]!=='services'&&Object.prototype.hasOwnProperty.call(saved,key))values[i]=Number(saved[key]);});}
+if(priceStore){const saved=priceStore.read();items.forEach((x,i)=>{const key=x[0]+'|'+x[2];if(Object.prototype.hasOwnProperty.call(saved,key))values[i]=Number(saved[key]);});}
 
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const money=n=>Number(n).toLocaleString('cs-CZ');
@@ -8226,8 +8238,8 @@ function mount(){
 }
 async function openPrices(){
  const content=document.getElementById('pz-library-content');if(!content)return;
- try{await priceStore.load();const saved=priceStore.read();items.forEach((x,i)=>{if(x[0]!=='services')values[i]=Object.prototype.hasOwnProperty.call(saved,x[0]+'|'+x[2])?Number(saved[x[0]+'|'+x[2]]):x[3]});}catch(error){console.warn('Ceník offline:',error);}
- content.innerHTML='<div class="pz-price-preview"><div class="pz-price-header"><button class="pz-price-back" id="pz-price-back" type="button">← Nastavení</button><span class="pz-price-preview-banner">CENÍK · SUPABASE</span></div><h3 style="margin:0;color:#104c29;font-size:25px">Správa cen</h3><p class="pz-price-muted">Přehled všech výchozích cen v konfigurátoru</p><div class="pz-price-notice"><strong>Cloudový ceník.</strong> Ceny řeziva a dopravy se ukládají do Supabase a načítají na všech přihlášených zařízeních. Starší položky a Archiv zůstávají beze změny. Při nedostupném internetu se použije poslední místní kopie; pro uložení změn je nutné připojení. Služby zatím nejsou propojené.</div><div class="pz-price-tabs"><button class="pz-price-tab active" data-price-tab="wood">Řezivo</button><button class="pz-price-tab" data-price-tab="services">Služby</button><button class="pz-price-tab" data-price-tab="transport">Doprava</button></div><div class="pz-price-tools"><input id="pz-price-search" type="search" placeholder="Hledat produkt nebo variantu…"><select id="pz-price-wood"><option value="all">Všechny dřeviny</option><option value="smrk">Smrk</option><option value="modrin">Modřín</option><option value="dub">Dub</option><option value="cerveny_dub">Červený dub</option><option value="borovice">Borovice</option></select></div><div class="pz-price-tablewrap"><table class="pz-price-table"><thead><tr><th>Produkt / varianta</th><th>Jednotka</th><th>Cena bez DPH</th></tr></thead><tbody id="pz-price-rows"></tbody></table></div><div class="pz-price-footer"><span class="pz-price-muted" id="pz-price-count"></span><button class="pz-price-reset" id="pz-price-reset">Obnovit původní ceny</button><button class="pz-price-save" id="pz-price-save">Uložit výchozí ceny</button></div><p class="pz-price-muted" id="pz-price-message" aria-live="polite"></p></div>';
+ try{await priceStore.load();const saved=priceStore.read();items.forEach((x,i)=>{values[i]=Object.prototype.hasOwnProperty.call(saved,x[0]+'|'+x[2])?Number(saved[x[0]+'|'+x[2]]):x[3]});}catch(error){console.warn('Ceník offline:',error);}
+ content.innerHTML='<div class="pz-price-preview"><div class="pz-price-header"><button class="pz-price-back" id="pz-price-back" type="button">← Nastavení</button><span class="pz-price-preview-banner">CENÍK · SUPABASE</span></div><h3 style="margin:0;color:#104c29;font-size:25px">Správa cen</h3><p class="pz-price-muted">Přehled všech výchozích cen v konfigurátoru</p><div class="pz-price-notice"><strong>Cloudový ceník.</strong> Ceny řeziva, dopravy a služeb se ukládají do Supabase a načítají na všech přihlášených zařízeních. Starší položky a Archiv zůstávají beze změny. Při nedostupném internetu se použije poslední místní kopie; pro uložení změn je nutné připojení.</div><div class="pz-price-tabs"><button class="pz-price-tab active" data-price-tab="wood">Řezivo</button><button class="pz-price-tab" data-price-tab="services">Služby</button><button class="pz-price-tab" data-price-tab="transport">Doprava</button></div><div class="pz-price-tools"><input id="pz-price-search" type="search" placeholder="Hledat produkt nebo variantu…"><select id="pz-price-wood"><option value="all">Všechny dřeviny</option><option value="smrk">Smrk</option><option value="modrin">Modřín</option><option value="dub">Dub</option><option value="cerveny_dub">Červený dub</option><option value="borovice">Borovice</option></select></div><div class="pz-price-tablewrap"><table class="pz-price-table"><thead><tr><th>Produkt / varianta</th><th>Jednotka</th><th>Cena bez DPH</th></tr></thead><tbody id="pz-price-rows"></tbody></table></div><div class="pz-price-footer"><span class="pz-price-muted" id="pz-price-count"></span><button class="pz-price-reset" id="pz-price-reset">Obnovit původní ceny</button><button class="pz-price-save" id="pz-price-save">Uložit výchozí ceny</button></div><p class="pz-price-muted" id="pz-price-message" aria-live="polite"></p></div>';
  content.querySelector('#pz-price-back').onclick=()=>{content.innerHTML=window.pzSettingsMarkup||'';window.pzSettingsRefresh?.();mount();};
  content.querySelectorAll('[data-price-tab]').forEach(b=>b.onclick=()=>{tab=b.dataset.priceTab;content.querySelectorAll('[data-price-tab]').forEach(x=>x.classList.toggle('active',x===b));render();});
  content.querySelector('#pz-price-wood').onchange=e=>{wood=e.target.value;render();};
@@ -8236,10 +8248,10 @@ async function openPrices(){
  content.querySelector('#pz-price-save').onclick=async()=>{
    const msg=content.querySelector('#pz-price-message');const saveButton=content.querySelector('#pz-price-save');
    saveButton.disabled=true;msg.textContent='Ukládám ceník do Supabase…';
-   if(tab==='services'){msg.textContent='Služby zatím nejsou propojené s výpočtem.';saveButton.disabled=false;return}
+   
    if(!priceStore){msg.textContent='Ceník není dostupný. Zkus obnovit aplikaci.';saveButton.disabled=false;return}
    try{
-     const next={};items.forEach((x,i)=>{if(x[0]!=='services')next[x[0]+'|'+x[2]]=values[i]});
+     const next={};items.forEach((x,i)=>{next[x[0]+'|'+x[2]]=values[i]});
      await priceStore.save(next);msg.textContent='Ceník uložen do Supabase. Nové položky na všech zařízeních použijí aktuální ceny.';
    }catch(e){msg.textContent='Cloudové uložení se nezdařilo: '+e.message+' Změny nebyly potvrzeny.';console.error('PZ ceník:',e)}
    finally{saveButton.disabled=false;}
@@ -8251,7 +8263,7 @@ function render(){
  const woodFilter=content.querySelector('#pz-price-wood');woodFilter.style.display=tab==='wood'?'':'none';
  const list=items.map((x,i)=>({x,i})).filter(({x})=>tab==='wood'?!['services','transport'].includes(x[0])&&(wood==='all'||x[0]===wood):x[0]===tab).filter(({x})=>(x[1]+' '+x[2]).toLocaleLowerCase('cs').includes(search));
  const body=content.querySelector('#pz-price-rows');body.replaceChildren();
- for(const {x,i} of list){const tr=document.createElement('tr'),name=document.createElement('td'),unit=document.createElement('td'),cell=document.createElement('td'),input=document.createElement('input');name.textContent=x[1]+' · '+x[2];unit.textContent=x[4];input.type='number';input.min='0';input.step='1';input.value=String(values[i]);input.setAttribute('aria-label','Cena: '+x[1]+' '+x[2]);input.disabled=x[0]==='services';input.addEventListener('wheel',()=>{if(document.activeElement===input)input.blur();},{passive:true});input.oninput=()=>{const n=Number(input.value);if(Number.isFinite(n)&&n>=0)values[i]=n;};cell.append(input);tr.append(name,unit,cell);body.append(tr);}
+ for(const {x,i} of list){const tr=document.createElement('tr'),name=document.createElement('td'),unit=document.createElement('td'),cell=document.createElement('td'),input=document.createElement('input');name.textContent=x[1]+' · '+x[2];unit.textContent=x[4];input.type='number';input.min='0';input.step='1';input.value=String(values[i]);input.setAttribute('aria-label','Cena: '+x[1]+' '+x[2]);input.addEventListener('wheel',()=>{if(document.activeElement===input)input.blur();},{passive:true});input.oninput=()=>{const n=Number(input.value);if(Number.isFinite(n)&&n>=0)values[i]=n;};cell.append(input);tr.append(name,unit,cell);body.append(tr);}
  content.querySelector('#pz-price-count').textContent='Zobrazeno '+list.length+' cenových položek';
 }
 const observer=new MutationObserver(()=>{if(document.getElementById('pz-library-content')?.querySelector('.pz-s8-wrap')&&!document.getElementById('pz-prices-open'))mount();});
