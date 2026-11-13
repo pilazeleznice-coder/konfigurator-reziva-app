@@ -3795,10 +3795,66 @@ html.pz-dark #pz-library .pz-ac-status,html.pz-dark #pz-library .pz-ac-kg,html.p
       });
     }
     pzApplyWoodPrices();
-    window.pzWoodPriceCatalog={read:pzReadWoodPrices,keys:Object.keys(PZ_PRICE_MAP),save(next){
-      const clean={};for(const key of Object.keys(PZ_PRICE_MAP)){if(Object.prototype.hasOwnProperty.call(next,key)){const n=Number(next[key]);if(!Number.isFinite(n)||n<0)throw new Error('Neplatná cena: '+key);clean[key]=n}}
-      localStorage.setItem(PZ_PRICE_KEY,JSON.stringify(clean));pzApplyWoodPrices();window.pzRefreshDefaultPrice?.();
-    }};
+    // Synchronizace ceníku: cloud je autoritativní, lokální kopie je pouze offline záloha.
+    let pzCatalogVersion=null,pzCatalogLoaded=false;
+    async function pzLoadCloudCatalog(){
+      const user=await pzGetCurrentUser();
+      if(!user)throw new Error('Nejdříve se přihlas.');
+      const {data,error}=await pzSupabase.from('price_catalog').select('prices,version').eq('user_id',user.id).maybeSingle();
+      if(error)throw error;
+      pzCatalogVersion=data?Number(data.version):null;
+      pzCatalogLoaded=true;
+      if(data){
+        const clean={};
+        for(const key of Object.keys(PZ_PRICE_MAP)){
+          if(Object.prototype.hasOwnProperty.call(data.prices||{},key)){
+            const value=Number(data.prices[key]);
+            if(Number.isFinite(value)&&value>=0)clean[key]=value;
+          }
+        }
+        localStorage.setItem(PZ_PRICE_KEY,JSON.stringify(clean));
+        pzApplyWoodPrices();window.pzRefreshDefaultPrice?.();
+      }
+      window.dispatchEvent(new Event('pz-price-cloud-loaded'));
+      return {exists:!!data,version:pzCatalogVersion};
+    }
+    async function pzSaveCloudCatalog(next){
+      const clean={};
+      for(const key of Object.keys(PZ_PRICE_MAP)){
+        if(Object.prototype.hasOwnProperty.call(next,key)){
+          const value=Number(next[key]);
+          if(!Number.isFinite(value)||value<0)throw new Error('Neplatná cena: '+key);
+          clean[key]=value;
+        }
+      }
+      if(!pzCatalogLoaded)await pzLoadCloudCatalog();
+      const user=await pzGetCurrentUser();
+      if(!user)throw new Error('Nejdříve se přihlas.');
+      if(pzCatalogVersion===null){
+        const {error}=await pzSupabase.from('price_catalog').insert({user_id:user.id,prices:clean,version:1});
+        if(error){if(error.code==='23505'){await pzLoadCloudCatalog();throw new Error('Ceník už mezitím vznikl na jiném zařízení. Načetla se aktuální cloudová verze; zkontroluj ceny a ulož znovu.');}throw error;}
+        pzCatalogVersion=1;
+      }else{
+        const {data,error}=await pzSupabase.from('price_catalog').update({prices:clean,version:pzCatalogVersion+1,updated_at:new Date().toISOString()}).eq('user_id',user.id).eq('version',pzCatalogVersion).select('version');
+        if(error)throw error;
+        if(!data||data.length!==1){await pzLoadCloudCatalog();throw new Error('Ceník se mezitím změnil na jiném zařízení. Načetla se nová verze; zkontroluj ceny a ulož znovu.');}
+        pzCatalogVersion=Number(data[0].version);
+      }
+      localStorage.setItem(PZ_PRICE_KEY,JSON.stringify(clean));
+      pzApplyWoodPrices();window.pzRefreshDefaultPrice?.();
+      window.dispatchEvent(new Event('pz-price-cloud-loaded'));
+      return pzCatalogVersion;
+    }
+    window.pzWoodPriceCatalog={read:pzReadWoodPrices,keys:Object.keys(PZ_PRICE_MAP),load:pzLoadCloudCatalog,save:pzSaveCloudCatalog};
+    let pzPriceRefreshTimer=0;
+    function pzRefreshCloudOnReturn(){
+      if(document.hidden||!navigator.onLine||document.querySelector('#pz-price-save'))return;
+      clearTimeout(pzPriceRefreshTimer);
+      pzPriceRefreshTimer=setTimeout(()=>pzLoadCloudCatalog().catch(e=>console.warn('PZ ceník synchronizace:',e)),350);
+    }
+    window.addEventListener('focus',pzRefreshCloudOnReturn);
+    window.addEventListener('online',pzRefreshCloudOnReturn);
+    document.addEventListener('visibilitychange',pzRefreshCloudOnReturn);
     function catalogPrice(prod, vals){
       let price = prod.basePrice;
       if(prod.priceBy){
@@ -7158,6 +7214,7 @@ renderAll();
   }
   async function loadCloudAndOpen(){
     try{ await pzSyncRecords(); pzStartRealtimeSync(); }catch(error){ console.error('PZ ÚVODNÍ SYNCHRONIZACE CHYBA:',error); }
+    try{await window.pzWoodPriceCatalog?.load();}catch(error){console.warn('PZ CENÍK OFFLINE: používám poslední místní ceny.',error);}
     showApp();
   }
 
@@ -8143,22 +8200,25 @@ function mount(){
  btn.innerHTML='<span class="pz-s8-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 11V4h7l11 11-7 7L3 11Z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg></span><span class="pz-s8-label"><strong>Ceny</strong><small>Správa ceníku řeziva, služeb a dopravy</small></span><span class="pz-s8-chevron" aria-hidden="true">›</span>';
  btn.addEventListener('click',openPrices);card.prepend(btn);
 }
-function openPrices(){
+async function openPrices(){
  const content=document.getElementById('pz-library-content');if(!content)return;
- content.innerHTML='<div class="pz-price-preview"><div class="pz-price-header"><button class="pz-price-back" id="pz-price-back" type="button">← Nastavení</button><span class="pz-price-preview-banner">TEST · LOKÁLNÍ CENÍK</span></div><h3 style="margin:0;color:#104c29;font-size:25px">Správa cen</h3><p class="pz-price-muted">Přehled všech výchozích cen v konfigurátoru</p><div class="pz-price-notice"><strong>Testovací verze.</strong> Ceny řeziva se ukládají v tomto prohlížeči a platí pro nově přidané položky. Archiv a již přidané položky zůstávají beze změny. Služby a doprava zatím nejsou propojené. Synchronizace mezi zařízeními zatím není aktivní.</div><div class="pz-price-tabs"><button class="pz-price-tab active" data-price-tab="wood">Řezivo</button><button class="pz-price-tab" data-price-tab="services">Služby</button><button class="pz-price-tab" data-price-tab="transport">Doprava</button></div><div class="pz-price-tools"><input id="pz-price-search" type="search" placeholder="Hledat produkt nebo variantu…"><select id="pz-price-wood"><option value="all">Všechny dřeviny</option><option value="smrk">Smrk</option><option value="modrin">Modřín</option><option value="dub">Dub</option><option value="cerveny_dub">Červený dub</option><option value="borovice">Borovice</option></select></div><div class="pz-price-tablewrap"><table class="pz-price-table"><thead><tr><th>Produkt / varianta</th><th>Jednotka</th><th>Cena bez DPH</th></tr></thead><tbody id="pz-price-rows"></tbody></table></div><div class="pz-price-footer"><span class="pz-price-muted" id="pz-price-count"></span><button class="pz-price-reset" id="pz-price-reset">Obnovit původní ceny</button><button class="pz-price-save" id="pz-price-save">Uložit výchozí ceny</button></div><p class="pz-price-muted" id="pz-price-message" aria-live="polite"></p></div>';
+ try{await priceStore.load();const saved=priceStore.read();items.forEach((x,i)=>{if(x[0]!=='services'&&x[0]!=='transport')values[i]=Object.prototype.hasOwnProperty.call(saved,x[0]+'|'+x[2])?Number(saved[x[0]+'|'+x[2]]):x[3]});}catch(error){console.warn('Ceník offline:',error);}
+ content.innerHTML='<div class="pz-price-preview"><div class="pz-price-header"><button class="pz-price-back" id="pz-price-back" type="button">← Nastavení</button><span class="pz-price-preview-banner">CENÍK · SUPABASE</span></div><h3 style="margin:0;color:#104c29;font-size:25px">Správa cen</h3><p class="pz-price-muted">Přehled všech výchozích cen v konfigurátoru</p><div class="pz-price-notice"><strong>Cloudový ceník.</strong> Ceny řeziva se ukládají do Supabase a načítají na všech přihlášených zařízeních. Starší položky a Archiv zůstávají beze změny. Při nedostupném internetu se použije poslední místní kopie; pro uložení změn je nutné připojení. Služby a doprava zatím nejsou propojené.</div><div class="pz-price-tabs"><button class="pz-price-tab active" data-price-tab="wood">Řezivo</button><button class="pz-price-tab" data-price-tab="services">Služby</button><button class="pz-price-tab" data-price-tab="transport">Doprava</button></div><div class="pz-price-tools"><input id="pz-price-search" type="search" placeholder="Hledat produkt nebo variantu…"><select id="pz-price-wood"><option value="all">Všechny dřeviny</option><option value="smrk">Smrk</option><option value="modrin">Modřín</option><option value="dub">Dub</option><option value="cerveny_dub">Červený dub</option><option value="borovice">Borovice</option></select></div><div class="pz-price-tablewrap"><table class="pz-price-table"><thead><tr><th>Produkt / varianta</th><th>Jednotka</th><th>Cena bez DPH</th></tr></thead><tbody id="pz-price-rows"></tbody></table></div><div class="pz-price-footer"><span class="pz-price-muted" id="pz-price-count"></span><button class="pz-price-reset" id="pz-price-reset">Obnovit původní ceny</button><button class="pz-price-save" id="pz-price-save">Uložit výchozí ceny</button></div><p class="pz-price-muted" id="pz-price-message" aria-live="polite"></p></div>';
  content.querySelector('#pz-price-back').onclick=()=>{content.innerHTML=window.pzSettingsMarkup||'';window.pzSettingsRefresh?.();mount();};
  content.querySelectorAll('[data-price-tab]').forEach(b=>b.onclick=()=>{tab=b.dataset.priceTab;content.querySelectorAll('[data-price-tab]').forEach(x=>x.classList.toggle('active',x===b));render();});
  content.querySelector('#pz-price-wood').onchange=e=>{wood=e.target.value;render();};
  content.querySelector('#pz-price-search').oninput=e=>{search=e.target.value.toLocaleLowerCase('cs');render();};
  content.querySelector('#pz-price-reset').onclick=()=>{values=items.map(x=>x[3]);render();content.querySelector('#pz-price-message').textContent='Původní ceny jsou připravené. Potvrď je tlačítkem Uložit výchozí ceny.';};
- content.querySelector('#pz-price-save').onclick=()=>{
-   const msg=content.querySelector('#pz-price-message');
+ content.querySelector('#pz-price-save').onclick=async()=>{
+   const msg=content.querySelector('#pz-price-message');const saveButton=content.querySelector('#pz-price-save');
+   saveButton.disabled=true;msg.textContent='Ukládám ceník do Supabase…';
    if(tab!=='wood'){msg.textContent='Služby a doprava zatím nejsou propojené s výpočtem. Přepni na Řezivo.';return}
    if(!priceStore){msg.textContent='Ceník není dostupný. Zkus obnovit aplikaci.';return}
    try{
      const next={};items.forEach((x,i)=>{if(x[0]!=='services'&&x[0]!=='transport')next[x[0]+'|'+x[2]]=values[i]});
-     priceStore.save(next);msg.textContent='Výchozí ceny řeziva uloženy. Nové položky použijí aktuální ceník.';
-   }catch(e){msg.textContent='Ceny se nepodařilo uložit: '+e.message}
+     await priceStore.save(next);msg.textContent='Ceník uložen do Supabase. Nové položky na všech zařízeních použijí aktuální ceny.';
+   }catch(e){msg.textContent='Cloudové uložení se nezdařilo: '+e.message+' Změny nebyly potvrzeny.';console.error('PZ ceník:',e)}
+   finally{saveButton.disabled=false;}
  };
  render();
 }
