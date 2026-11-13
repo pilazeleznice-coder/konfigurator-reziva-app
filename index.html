@@ -3758,6 +3758,47 @@ html.pz-dark #pz-library .pz-ac-status,html.pz-dark #pz-library .pz-ac-kg,html.p
         return String(state.values[k])===expected;
       });
     }
+    // Výchozí ceník: nové položky; existující položky mají vlastní uloženou jednotkovou cenu.
+    const PZ_PRICE_KEY='pz_default_wood_prices_v1';
+    const PZ_PRICE_MAP={
+      'smrk|Trámy':['smrk','tramy','basePrice'],
+      'smrk|Prkna stejně široká':['smrk','prkna_stejna','basePrice'],
+      'smrk|Prkna různě široká 3–5 m':['smrk','prkna_ruzne_3_5','basePrice'],
+      'smrk|Prkna různě široká 0,8–2,5 m':['smrk','prkna_ruzne_08_25','basePrice'],
+      'smrk|Fošny – standard':['smrk','fosny','basePrice'],
+      'smrk|Fošny – 3,2 cm':['smrk','fosny','priceBy','height','3.2'],
+      'smrk|Střešní latě 3–5 m':['smrk','lat_3_5','basePrice'],
+      'smrk|Střešní latě 2 m':['smrk','lat_2','basePrice'],
+      'smrk|Odřezky':['smrk','odrezky','basePrice'],
+      'modrin|Trámy':['modrin','tramy','basePrice'],
+      'modrin|Prkna různě široká 3–5 m':['modrin','prkna_ruzne_3_5','basePrice'],
+      'modrin|Fošny':['modrin','fosny','basePrice'],
+      'dub|Fošny – 3,2 cm':['dub','fosny','priceBy','height','3.2'],
+      'dub|Fošny – 5,2 cm':['dub','fosny','priceBy','height','5.2'],
+      'cerveny_dub|Fošny – 3,2 cm':['cerveny_dub','fosny','priceBy','height','3.2'],
+      'cerveny_dub|Fošny – 5,2 cm':['cerveny_dub','fosny','priceBy','height','5.2'],
+      'borovice|Prkna různě široká 3–5 m':['borovice','prkna_ruzne_3_5','basePrice'],
+      'borovice|Fošny – standard':['borovice','fosny','basePrice'],
+      'borovice|Fošny – 3,2 cm':['borovice','fosny','priceBy','height','3.2'],
+      'borovice|Fošny – neohraněné':['borovice','fosny','priceBy','edgeType','neohranene'],
+      'borovice|Fošny – neohraněné 3,2 cm':['borovice','fosny','priceBy','combo','neohranene|3.2']
+    };
+    function pzReadWoodPrices(){try{const v=JSON.parse(localStorage.getItem(PZ_PRICE_KEY)||'{}');return v&&typeof v==='object'&&!Array.isArray(v)?v:{}}catch(_){return {}}}
+    function pzApplyWoodPrices(){
+      const saved=pzReadWoodPrices();
+      Object.entries(PZ_PRICE_MAP).forEach(([key,path])=>{
+        if(!Object.prototype.hasOwnProperty.call(saved,key))return;
+        const value=Number(saved[key]);if(!Number.isFinite(value)||value<0)return;
+        let obj=CONFIG.materials[path[0]]?.products[path[1]];if(!obj)return;
+        for(let i=2;i<path.length-1;i++)obj=obj?.[path[i]];
+        if(obj)obj[path[path.length-1]]=value;
+      });
+    }
+    pzApplyWoodPrices();
+    window.pzWoodPriceCatalog={read:pzReadWoodPrices,keys:Object.keys(PZ_PRICE_MAP),save(next){
+      const clean={};for(const key of Object.keys(PZ_PRICE_MAP)){if(Object.prototype.hasOwnProperty.call(next,key)){const n=Number(next[key]);if(!Number.isFinite(n)||n<0)throw new Error('Neplatná cena: '+key);clean[key]=n}}
+      localStorage.setItem(PZ_PRICE_KEY,JSON.stringify(clean));pzApplyWoodPrices();window.pzRefreshDefaultPrice?.();
+    }};
     function catalogPrice(prod, vals){
       let price = prod.basePrice;
       if(prod.priceBy){
@@ -3919,6 +3960,11 @@ html.pz-dark #pz-library .pz-ac-status,html.pz-dark #pz-library .pz-ac-kg,html.p
       if(prod.priceMode==="piece") return fmtMoney(prod.basePrice) + " / ks";
       return "od " + fmtMoney(prod.basePrice) + " / m³";
     }
+    // Mouse wheel scrolls the page, never silently changes a focused numeric price.
+    document.addEventListener('wheel',function(e){
+      const field=e.target.closest?.('input[type="number"]');
+      if(field&&document.activeElement===field)field.blur();
+    },{capture:true,passive:true});
     function pzNumericOnly(input){
       if(!input || input.dataset.pzNumericOnly==="1") return;
       input.dataset.pzNumericOnly="1";
@@ -3947,7 +3993,7 @@ html.pz-dark #pz-library .pz-ac-status,html.pz-dark #pz-library .pz-ac-kg,html.p
       const currentPrice=state.priceOverridden?Number(state.manualUnitPrice||0):catalogPrice(prod,state.values);
       const priceUnit=prod.priceMode==="m"?"Kč/bm":prod.priceMode==="piece"?"Kč/ks":"Kč/m³";
       const isBeamPrice=state.product==="tramy";
-      const beamPrices=[6800,9500,10500];
+      const beamPrices=[...new Set([6800,9500,10500,Number(prod.basePrice)])].sort((a,b)=>a-b);
       let html=isBeamPrice
         ?`<div class="pz-manager-field" style="margin-bottom:14px"><label for="pz-manager-unit-price">Cena za m³</label><div class="pz-unit-wrap pz-beam-price-wrap"><input id="pz-manager-unit-price" type="number" inputmode="decimal" min="0" step="1" value="${currentPrice}" aria-label="Cena trámů za m³"><span class="pz-unit-suffix">Kč/m³</span><button type="button" id="pz-beam-price-toggle" class="pz-beam-price-toggle" aria-label="Vybrat přednastavenou cenu" aria-expanded="false" aria-controls="pz-beam-price-menu"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button><div id="pz-beam-price-menu" class="pz-beam-price-menu" hidden>${beamPrices.map(price=>`<button type="button" class="pz-beam-price-option" data-beam-price="${price}">${fmtNum(price,0)} Kč/m³</button>`).join("")}</div></div></div>`
         :`<div class="pz-manager-field" style="margin-bottom:14px"><label>Cena za ${prod.priceMode==="m"?"bm":prod.priceMode==="piece"?"kus":"m³"}</label><div class="pz-unit-wrap"><input id="pz-manager-unit-price" type="number" inputmode="decimal" min="0" step="1" value="${currentPrice}"><span class="pz-unit-suffix">${priceUnit}</span></div></div>`;
@@ -5160,7 +5206,7 @@ document.querySelectorAll("[data-service-choice]").forEach(control=>{
       state.product = item.product;
       state.values = JSON.parse(JSON.stringify(item.values));
       state.services = JSON.parse(JSON.stringify(item.services));
-      state.manualUnitPrice = Number(item.manualUnitPrice ?? item.calc?.unitPrice ?? 0); state.priceOverridden=!!item.priceOverridden; state.itemDiscount=Number(item.discountPct ?? item.calc?.discountPct ?? 0); state.itemAdjustmentMode=item.adjustmentMode||item.calc?.adjustmentMode||"discount";
+      state.manualUnitPrice = Number(item.manualUnitPrice ?? item.calc?.unitPrice ?? 0); state.priceOverridden=true; state.itemDiscount=Number(item.discountPct ?? item.calc?.discountPct ?? 0); state.itemAdjustmentMode=item.adjustmentMode||item.calc?.adjustmentMode||"discount";
       state.itemNote = String(item.note || "");
       state.editingId = id;
       $("pz-add-btn").textContent = "Uložit změny";
@@ -6595,6 +6641,12 @@ if(deliveryCollapsed) deliveryCollapsed.style.display = "flex";
       }catch(err){pzResetExport('word','Word se nepodařilo vytvořit: '+(err?.message||String(err)));console.error("Word:",err);alert("Word dokument se nepodařilo vytvořit. Důvod: "+(err?.message||String(err)));}finally{if(btn){btn.disabled=false;btn.textContent=old;}}
     }
 
+    // Refresh only the new-item editor. Existing cart items and archived calculations stay untouched.
+    window.pzRefreshDefaultPrice=function(){
+      if(state.editingId!=null || state.priceOverridden) return;
+      renderParams();
+      updatePreview();
+    };
     function renderAll(){
       renderMaterials();
       renderProducts();
@@ -6748,14 +6800,41 @@ window.pzSetSyncStatus=function(status){const b=document.getElementById("pz-sync
     function pzOpenRecord(id){clearTimeout(pzAutosaveTimer);if(typeof pzInvalidateDelivery==='function')pzInvalidateDelivery();const rec=pzRecords().find(r=>r.id===id);if(!rec||!rec.snapshot||rec.type==='trash')return;const snap=rec.snapshot,ss=snap.state||{};pzSuppressAutosave=true;state.material=ss.material&&CONFIG.materials[ss.material]?ss.material:'smrk';state.product=ss.product&&CONFIG.materials[state.material]?.products[ss.product]?ss.product:'tramy';state.values=pzDeep(ss.values||{});state.services=pzDeep(ss.services||{});state.cart=pzDeep(ss.cart||[]);state.selectedAddress=ss.selectedAddress||'';state.manualUnitPrice=ss.manualUnitPrice??null;state.priceOverridden=!!ss.priceOverridden;state.itemDiscount=Number(ss.itemDiscount)||0;state.globalDiscount=Number(ss.globalDiscount)||0;state.itemAdjustmentMode=ss.itemAdjustmentMode||"discount";state.globalAdjustmentMode=ss.globalAdjustmentMode||"discount";state.deliveryAdjustmentMode=ss.deliveryAdjustmentMode||"discount";pzDeliveryTouched=!!ss.deliveryTouched||!!(ss.cart||[]).some(i=>i.type==='delivery');state.editingId=null;state.editingBackup=null;state.deliveryEditingBackup=null;pzActiveDraftId=rec.id;pzOpenedRecord={id:rec.id,type:rec.type,customer:rec.customer||'Bez názvu',original:pzDeep(rec)};pzDirty=false;renderAll();pzApplyInputs(snap.inputs||{});restoreStoredDeliveryUi();setupGlobalDiscount();closeCart();pzCloseLibrary();pzSuppressAutosave=false;pzOpenedRecord.loadedSnapshot=pzDeep(pzSnapshot());pzUpdateLoadedBar();window.scrollTo({top:0,behavior:'smooth'});showToast(rec.type==='archive'?'Načteno z archivu.':'Koncept načten.')}
     function pzResetCalculation(){if(typeof pzInvalidateDelivery==='function')pzInvalidateDelivery();pzSuppressAutosave=true;clearTimeout(pzAutosaveTimer);state.material='smrk';state.product='tramy';state.values={};state.services={};state.cart=[];state.delivery=null;$('pz-delivery-note').value='';state.editingId=null;state.editingBackup=null;state.deliveryEditingBackup=null;state.selectedAddress='';state.manualUnitPrice=null;state.priceOverridden=false;state.itemDiscount=0;state.globalDiscount=0;state.itemAdjustmentMode="discount";state.globalAdjustmentMode="discount";state.deliveryAdjustmentMode="discount";pzDeliveryTouched=false;pzActiveDraftId=null;pzDirty=false;pzOpenedRecord=null;document.querySelectorAll('.pz-contact-input').forEach(el=>{if(el.id==='pz-contact-phone-prefix')el.value='+420';else if(el.id==='pz-contact-dic-prefix')el.value='CZ';else el.value=''});document.querySelectorAll('.pz-contact-valid').forEach(el=>el.classList.remove('pz-contact-valid'));localStorage.removeItem(CALCULATION_STORAGE_KEY);localStorage.removeItem('pzDraft');state.values=defaultValues(productDef());renderAll();const status=$('pz-contact-status');if(status){status.textContent='Kliknutím vyplňte údaje';status.classList.remove('saved')}const sec=$('pz-contact-section');sec?.classList.remove('open');const gd=$('pz-global-discount');if(gd)gd.value='';const dc=$('pz-delivery-collapsed'),dh=document.querySelector('.pz-delivery-head'),db=$('pz-delivery-body');if(dc)dc.style.display='none';if(dh)dh.style.display='';if(db)db.style.display='none';closeCart();pzUpdateLoadedBar();pzSuppressAutosave=false}
  async function pzArchiveCurrent(){if(pzArchiveBusy)return;if(!pzHasWork()||state.cart.length===0){showToast('Nejdříve vytvořte kalkulaci.');return}clearTimeout(pzAutosaveTimer);const btn=$('pz-save-archive');pzArchiveBusy=true;if(btn){btn.disabled=true;btn.setAttribute('aria-busy','true')}try{const rows=pzRecords(),now=Date.now();const id=pzActiveDraftId||pzOpenedRecord?.id||pzId();const old=rows.find(r=>r.id===id);const kgNumber=old?.kgNumber||pzNextKgNumber(rows);const rec={...(old||{}),id,type:'archive',kgNumber,createdAt:old?.createdAt||now,updatedAt:now,archivedAt:old?.archivedAt||now,previousType:null,deletedAt:null,...pzMeta(),snapshot:pzSnapshot()};const filtered=rows.filter(r=>r.id!==id);filtered.unshift(rec);pzWriteRecords(filtered);pzResetCalculation();showToast(`Uloženo do archivu • ${kgNumber}`)}finally{setTimeout(()=>{pzArchiveBusy=false;if(btn){btn.disabled=false;btn.removeAttribute('aria-busy')}},700)}}
-    function pzMoveTrash(id){const rows=pzRecords(),i=rows.findIndex(r=>r.id===id);if(i<0)return;rows[i]={...rows[i],previousType:rows[i].type,type:'trash',deletedAt:Date.now(),updatedAt:Date.now()};if(id===pzActiveDraftId)pzActiveDraftId=null;pzWriteRecords(rows);pzRenderLibrary()}
+    function pzMoveTrash(id){const rows=pzRecords(),i=rows.findIndex(r=>r.id===id);if(i<0)return;rows[i]={...rows[i],previousType:rows[i].type,type:'trash',deletedAt:Date.now(),updatedAt:Date.now()};if(id===pzActiveDraftId){pzResetCalculation()}pzWriteRecords(rows);pzRenderLibrary()}
     function pzRestoreTrash(id){const rows=pzRecords(),i=rows.findIndex(r=>r.id===id);if(i<0)return;rows[i]={...rows[i],type:rows[i].previousType==='archive'?'archive':'draft',previousType:null,deletedAt:null,updatedAt:Date.now()};pzWriteRecords(rows);pzRenderLibrary()}
+
+function pzConfirmPermanentDelete(all=false){
+  return new Promise(resolve=>{
+    const overlay=document.createElement('div');
+    overlay.className='pz-delete-confirm-overlay';
+    overlay.innerHTML=`<section class="pz-delete-confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="pz-delete-title" aria-describedby="pz-delete-description">
+      <div class="pz-delete-confirm-icon" aria-hidden="true"><svg width="27" height="27" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M9 6V4h6v2M5 6l1 15h12l1-15M10 10v7M14 10v7"/></svg></div>
+      <h2 id="pz-delete-title">${all?'Vysypat celý koš?':'Trvale smazat koncept?'}</h2>
+      <p id="pz-delete-description">${all?'Všechny položky v koši budou nenávratně odstraněny.':'Tento koncept bude nenávratně odstraněn z koše.'} Tuto akci nelze vrátit zpět.</p>
+      <div class="pz-delete-confirm-buttons"><button type="button" data-cancel>Zrušit</button><button type="button" data-approve>Trvale smazat</button></div>
+    </section>`;
+    document.body.appendChild(overlay);
+    const cancel=overlay.querySelector('[data-cancel]'),approve=overlay.querySelector('[data-approve]');
+    const prior=document.activeElement;
+    let finished=false;
+    function done(value){if(finished)return;finished=true;document.removeEventListener('keydown',onKey,true);overlay.remove();if(prior&&prior.isConnected)prior.focus();resolve(value)}
+    function onKey(e){
+      if(e.key==='Escape'){e.preventDefault();e.stopPropagation();done(false)}
+      if(e.key==='Tab'){const targets=[cancel,approve];const index=targets.indexOf(document.activeElement);if(e.shiftKey&&index<=0){e.preventDefault();approve.focus()}else if(!e.shiftKey&&index===1){e.preventDefault();cancel.focus()}}
+    }
+    cancel.addEventListener('click',()=>done(false));
+    approve.addEventListener('click',()=>{approve.classList.add('pz-confirm-clicked');done(true)});
+    overlay.addEventListener('click',e=>{if(e.target===overlay)done(false)});
+    document.addEventListener('keydown',onKey,true);
+    cancel.focus();
+  });
+}
  async function pzDeleteForever(id) {
-  if (!confirm('Opravdu chcete tuto kalkulaci trvale odstranit?')) return;
+  if (!await pzConfirmPermanentDelete(false)) return;
   const now=Date.now();const tomb={id,type:PZ_TOMBSTONE_TYPE,updatedAt:now,deletedAt:now};
   localStorage.setItem(PZ_RECORDS_KEY,JSON.stringify(pzRecords().filter(r=>r.id!==id)));
   const ts=pzLocalTombstones().filter(r=>r.id!==id);ts.unshift(tomb);pzSetLocalTombstones(ts);pzUpdateCounts();
-  await pzCloudSaveRecord(tomb);pzRenderLibrary();
+  pzRenderLibrary();Promise.resolve().then(()=>pzCloudSaveRecord(tomb)).catch(err=>{console.error('Cloud delete sync failed:',err);showToast('Smazáno v zařízení, synchronizaci je potřeba zopakovat.');});
 }
     function pzUpdateCounts(){const rows=pzRecords();[['pz-draft-count','draft'],['pz-archive-count','archive'],['pz-trash-count','trash']].forEach(([id,type])=>{const e=$(id);if(!e)return;const n=rows.filter(r=>r.type===type).length;e.textContent=String(n);e.classList.toggle('has-count',n>0)})}
     function pzEsc(v){return String(v??'').replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[c]))}
@@ -6929,7 +7008,7 @@ window.pzSetSyncStatus=function(status){const b=document.getElementById("pz-sync
       const vat=total.net*.21,archived=Number(r.total),calculated=total.net+vat,display=Number.isFinite(archived)&&archived>0?archived:calculated,mismatch=Number.isFinite(archived)&&archived>0&&Math.abs(archived-calculated)>.10;
       const sum='<section class="pza-section"><h3>Cenový souhrn</h3><div class="pza-summary">'+((total.discount||total.surcharge)?'<div><span>Mezisoučet bez DPH</span><strong>'+pzaMoney(total.original)+'</strong></div>':'')+(total.discount?'<div class="pza-discount"><span>Slevy</span><strong>−'+pzaMoney(total.discount)+'</strong></div>':'')+(total.surcharge?'<div class="pza-surcharge"><span>Přirážky</span><strong>+'+pzaMoney(total.surcharge)+'</strong></div>':'')+'<div><span>Bez DPH</span><strong>'+pzaMoney(total.net)+'</strong></div><div><span>DPH 21 %</span><strong>'+pzaMoney(vat)+'</strong></div><div class="pza-grand"><span>Celkem s DPH</span><strong>'+pzaMoney(display)+'</strong></div>'+(mismatch?'<p class="pza-warning">Uložená částka se liší od přepočtu položek. Zobrazena je archivovaná cena.</p>':'')+'</div></section>';
       const statuses={progress:'Rozpracováno',waiting:'Čeká na potvrzení',completed:'Splněno',cancelled:'Zrušeno'},status=typeof pzReviewStatus==='function'?pzReviewStatus(r):'';
-      return '<header class="pza-head"><div><div class="pza-eyebrow">'+pzEsc(pzDate(r.createdAt||r.archivedAt))+(statuses[status]?' · '+statuses[status]:'')+'</div><h2 id="pza-heading">'+pzEsc(r.kgNumber||'Detail objednávky')+'</h2></div><button class="pza-close" type="button" data-pza-close aria-label="Zavřít detail">×</button></header><div class="pza-body">'+customer+material+delivery+sum+'</div><footer class="pza-footer"><button type="button" class="pza-btn" data-pza-close>Zavřít</button><button type="button" class="pza-btn primary" data-pza-load>Načíst kalkulaci</button></footer>';
+      return '<header class="pza-head"><div><div class="pza-eyebrow">'+pzEsc(pzDate(r.createdAt||r.archivedAt))+(statuses[status]?' · '+statuses[status]:'')+'</div><h2 id="pza-heading">'+pzEsc(r.type==='draft'?'Náhled konceptu':r.type==='trash'?'Náhled z koše':(r.kgNumber||'Detail objednávky'))+'</h2></div><button class="pza-close" type="button" data-pza-close aria-label="Zavřít detail">×</button></header><div class="pza-body">'+customer+material+delivery+sum+'</div><footer class="pza-footer"><button type="button" class="pza-btn" data-pza-close>Zavřít</button><button type="button" class="pza-btn primary" data-pza-load>Načíst kalkulaci</button></footer>';
     }
     function pzaModal(){
       let el=document.getElementById('pz-archive-detail');if(el)return el;
@@ -6937,7 +7016,7 @@ window.pzSetSyncStatus=function(status){const b=document.getElementById("pz-sync
       el.addEventListener('click',ev=>{if(ev.target===el||ev.target.closest('[data-pza-close]'))pzaClose();if(ev.target.closest('[data-pza-load]')){const id=pzaId;pzaClose();if(id)pzOpenRecord(id);}});
       return el;
     }
-    function pzaOpen(id){const r=pzRecords().find(x=>x.id===id&&x.type==='archive'&&x.snapshot);if(!r){showToast('Archivovaná objednávka nebyla nalezena.');return}const el=pzaModal();pzaFocus=document.activeElement;pzaId=id;el.querySelector('.pza-panel').innerHTML=pzaRender(r);el.classList.add('open');el.setAttribute('aria-hidden','false');document.documentElement.classList.add('pza-open');el.querySelector('.pza-close')?.focus();}
+    function pzaOpen(id){const r=pzRecords().find(x=>x.id===id&&['archive','draft','trash'].includes(x.type)&&x.snapshot);if(!r){showToast('Uložená kalkulace nebyla nalezena.');return}const el=pzaModal();pzaFocus=document.activeElement;pzaId=id;el.querySelector('.pza-panel').innerHTML=pzaRender(r);const load=el.querySelector('[data-pza-load]');if(load){if(r.type==='trash')load.remove();else if(r.type==='draft')load.textContent='Upravit koncept';}el.classList.add('open');el.setAttribute('aria-hidden','false');document.documentElement.classList.add('pza-open');el.querySelector('.pza-close')?.focus();}
     function pzaClose(){const el=document.getElementById('pz-archive-detail');if(!el?.classList.contains('open'))return;el.classList.remove('open');el.setAttribute('aria-hidden','true');document.documentElement.classList.remove('pza-open');pzaId=null;if(pzaFocus?.isConnected)pzaFocus.focus();pzaFocus=null;}
     pzaModal();
     document.addEventListener('keydown',ev=>{const el=document.getElementById('pz-archive-detail');if(!el?.classList.contains('open'))return;if(ev.key==='Escape'){ev.preventDefault();ev.stopImmediatePropagation();pzaClose();return}if(ev.key==='Tab'){const nodes=[...el.querySelectorAll('button:not([disabled]),a[href]')];if(nodes.length&&ev.shiftKey&&document.activeElement===nodes[0]){ev.preventDefault();nodes[nodes.length-1].focus()}else if(nodes.length&&!ev.shiftKey&&document.activeElement===nodes[nodes.length-1]){ev.preventDefault();nodes[0].focus()}}});
@@ -6948,7 +7027,22 @@ window.pzSetSyncStatus=function(status){const b=document.getElementById("pz-sync
       const phoneHtml=/^\+?\d{3,15}$/.test(dial)?'<a class="pz-ac-phone" href="tel:'+pzEsc(dial)+'">'+svg('<path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6 19.8 19.8 0 0 1-3.1-8.7A2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .3 1.9.7 2.8a2 2 0 0 1-.5 2.1L8 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.5c.9.4 1.8.6 2.8.7a2 2 0 0 1 1.8 2.1z"/>')+pzEsc(phone)+'</a>':'<span class="pz-ac-phone">'+pzEsc(phone||'Telefon neuveden')+'</span>';
       return '<article class="pz-record pz-archive-compact pz-ac-v2'+pzReviewCardClass(r)+'" data-open-record="'+id+'" tabindex="0" role="button" aria-label="Detail objednávky '+pzEsc(r.kgNumber||'')+'"><div class="pz-ac-heading"><strong class="pz-ac-name">'+pzEsc(pzArchiveCustomer(r))+'</strong>'+(r.kgNumber?'<span class="pz-ac-kg">'+pzEsc(r.kgNumber)+'</span>':'')+'<div class="pz-ac-phone-row">'+phoneHtml+'</div></div><div class="pz-ac-price"><strong>'+fmtMoney(Number(r.total)||0)+'</strong><div class="pz-ac-price-net">'+fmtMoney(pzArchiveWithoutVat(r))+' <small>bez DPH</small></div></div><div class="pz-ac-actions"><button type="button" class="pz-ac-edit" data-archive-open="'+id+'" title="Upravit kalkulaci" aria-label="Upravit kalkulaci">'+svg('<path d="m15 5 4 4M4 20l4.5-1 11-11a2.8 2.8 0 0 0-4-4l-11 11L4 20z"/>')+'</button><div class="pz-ac-menu-wrap"><button type="button" class="pz-ac-menu-toggle" data-ac-menu="'+id+'" aria-label="Další akce" aria-expanded="false" aria-haspopup="true">'+svg('<circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/>')+'</button><div class="pz-ac-menu" hidden><div class="pz-ac-menu-head"><span>AKCE OBJEDNÁVKY</span><span class="pz-ac-menu-kg">'+pzEsc(r.kgNumber||'')+'</span></div><div class="pz-ac-menu-options"><button type="button" data-rv-open="'+id+'"><span class="pz-ac-menu-icon">'+svg('<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M8 13h8M8 17h6"/>')+'</span><span class="pz-ac-menu-copy"><strong>Stav objednávky a recenze</strong><small>Správa stavu, e-mail, SMS a WhatsApp</small></span><span class="pz-ac-menu-chevron">'+svg('<path d="m9 18 6-6-6-6"/>')+'</span></button><button type="button" class="pz-ac-menu-danger" data-ac-trash="'+id+'"><span class="pz-ac-menu-icon">'+svg('<path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7"/>')+'</span><span class="pz-ac-menu-copy"><strong>Přesunout do koše</strong><small>Objednávku lze později obnovit</small></span><span class="pz-ac-menu-chevron">'+svg('<path d="m9 18 6-6-6-6"/>')+'</span></button></div></div></div></div></article>';
     }
-    function pzRecordHtml(r){if(r.type==='archive')return pzArchiveCompactHtml(r);const when=pzDate(r.type==='archive'?r.archivedAt:r.type==='trash'?r.deletedAt:r.updatedAt);const label=r.type==='draft'?'Koncept':r.type==='archive'?'Archivováno':'V koši';const kg=r.kgNumber?`<span class="pz-record-type">${pzEsc(r.kgNumber)}</span>`:'';const itemNotes=pzArchiveItemNotesHtml(r);return `<article class="pz-record" data-open-record="${r.id}"><div class="pz-record-main"><strong>${pzEsc(r.customer||'Bez názvu')}</strong><span>${when}</span><span class="pz-record-type">${label}</span>${kg}</div><div class="pz-record-price"><strong>${fmtMoney(Number(r.total)||0)}</strong><span>s DPH</span></div><div class="pz-record-summary"><span>☎ <b>${pzEsc(r.phone||'Telefon neuveden')}</b></span><span>⌖ ${pzEsc(pzArchiveDisplayAddress(r)||'Adresa neuvedena')}</span><span>▤ <b>${r.itemCount||0} položek</b></span></div>${itemNotes}<div class="pz-record-actions">${r.type==='trash'?`<button class="pz-mini-btn" data-restore="${r.id}" type="button">Obnovit</button><button class="pz-mini-btn danger" data-forever="${r.id}" type="button">Smazat trvale</button>`:`<button class="pz-mini-btn danger" data-trash="${r.id}" type="button">Přesunout do koše</button>`}</div></article>`}
+    function pzRecordHtml(r){
+      if(r.type==='archive')return pzArchiveCompactHtml(r);
+      const id=pzEsc(r.id),trash=r.type==='trash';
+      const svg=body=>'<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+body+'</svg>';
+      const pencil=svg('<path d="m15 5 4 4M4 20l4.5-1 11-11a2.8 2.8 0 0 0-4-4l-11 11L4 20z"/>');
+      const bin=svg('<path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7"/>');
+      const restore=svg('<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/>');
+      const phone=String(r.phone||'').trim(),count=Number(r.itemCount)||0;
+      const customer=String(r.company||r.customer||'').trim()||'Bez názvu';
+      const date=pzDate(trash?r.deletedAt:r.updatedAt);
+      const gross=Number(r.total)||0,net=gross/1.21;
+      const info=[phone?'<span>'+svg('<path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6 19.8 19.8 0 0 1-3.1-8.7A2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .3 1.9.7 2.8a2 2 0 0 1-.5 2.1L8 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 0 2.1-.5c.9.4 1.8.6 2.8.7a2 2 0 0 1 1.8 2.1z"/>')+pzEsc(phone)+'</span>':'',count?'<span>'+svg('<path d="M3 7 12 3l9 4-9 4-9-4ZM3 7v10l9 4 9-4V7M12 11v10"/>')+count+' '+(count===1?'položka':count>=2&&count<=4?'položky':'položek')+'</span>':''].filter(Boolean).join('');
+      const actions=trash?'<button class="pz-stage2-action" data-restore="'+id+'" type="button">'+restore+' Obnovit</button><button class="pz-stage2-action danger" data-forever="'+id+'" type="button">'+bin+' Smazat trvale</button>':'<button class="pz-stage2-action icon-only" data-draft-edit="'+id+'" type="button" aria-label="Upravit koncept" title="Upravit koncept">'+pencil+'</button><button class="pz-stage2-action icon-only danger" data-trash="'+id+'" type="button" aria-label="Přesunout do koše" title="Přesunout do koše">'+bin+'</button>';
+      return '<article class="pz-record pz-stage2-card" data-open-record="'+id+'" tabindex="0" role="button" aria-label="'+(trash?'Náhled smazaného konceptu ':'Náhled konceptu ')+pzEsc(customer)+'"><div class="pz-stage2-head"><div class="pz-stage2-identity"><strong>'+pzEsc(customer)+'</strong><small class="pz-stage2-date">'+pzEsc(date)+'</small><span class="pz-stage2-status '+(trash?'is-trash':'')+'">'+(trash?'V koši':'Koncept')+'</span></div><div class="pz-stage2-price"><div class="pz-stage2-gross"><strong>'+fmtMoney(gross)+'</strong><span>s DPH</span></div><small>Bez DPH: '+fmtMoney(net)+'</small></div></div><div class="pz-stage2-bottom"><div class="pz-stage2-info">'+info+'</div><div class="pz-stage2-actions">'+actions+'</div></div></article>';
+    }
+    function pzDraftPreview(id){pzaOpen(id)}
 
     let pzArchiveFilters={search:'',from:'',to:'',sort:'new',status:'all'};
     function pzArchiveCreatedAt(r){for(const v of [r.createdAt,r.archivedAt,r.updatedAt]){const n=typeof v==='number'?v:/^\d+$/.test(String(v||''))?Number(v):Date.parse(v);if(Number.isFinite(n)&&n>0)return n;}return 0;}
@@ -6966,7 +7060,7 @@ window.pzSetSyncStatus=function(status){const b=document.getElementById("pz-sync
       if(mode==='trash')return '<div class="pz-trash-toolbar"><button class="pz-mini-btn danger" id="pz-empty-trash" type="button">Vysypat koš</button></div>';
       return '<div class="pz-library-tools pz-archive-filter-v2"><div class="pz-filter-top"><span class="pz-filter-heading"><span class="pz-filter-heading-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M7 12h10M10 17h4"/></svg></span> Filtry archivu</span><span class="pz-filter-total" id="pz-lib-total">Objednávky</span></div><div class="pz-filter-search-row"><span class="pz-filter-search-wrap"><svg class="pz-filter-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg><input class="pz-search-wide" id="pz-lib-search" type="search" placeholder="Hledat zákazníka, KG, telefon…" aria-label="Vyhledávání v archivu"></span><button type="button" id="pz-filter-toggle" aria-expanded="false" aria-controls="pz-filter-expanded" title="Rozbalit filtry" aria-label="Rozbalit filtry"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h16M4 17h16M8 4v6M16 14v6M4 12h16"/></svg><span class="pz-filter-toggle-chevron"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></span></button></div><div class="pz-filter-expanded" id="pz-filter-expanded" hidden><label for="pz-lib-status">Stav objednávky</label><select id="pz-lib-status" aria-label="Stav objednávky"><option value="all">Všechny stavy</option><option value="progress">Rozpracováno</option><option value="waiting">Čeká na potvrzení</option><option value="completed">Splněno</option><option value="cancelled">Zrušeno</option></select><label for="pz-lib-sort">Řazení objednávek</label><select id="pz-lib-sort" aria-label="Řazení"><option value="new">Nejnovější nahoře</option><option value="old">Nejstarší nahoře</option><option value="az">Podle zákazníka A–Z</option><option value="high">Od nejvyšší ceny</option><option value="low">Od nejnižší ceny</option></select><label>Datum vytvoření</label><div class="pz-filter-dates"><div><label for="pz-lib-from">Od</label><input id="pz-lib-from" type="date" aria-label="Datum vytvoření od"></div><div><label for="pz-lib-to">Do</label><input id="pz-lib-to" type="date" aria-label="Datum vytvoření do"></div></div></div><div class="pz-filter-bottom"><span id="pz-lib-count" role="status"></span><button type="button" id="pz-lib-reset"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11a9 9 0 1 1 2.6 6.4M3 4v7h7"/></svg> Resetovat</button></div></div>';
     }
-    function pzRenderLibrary(){const content=$('pz-library-content');if(!content)return;const titles={drafts:['Koncepty','Rozpracované kalkulace se ukládají automaticky.'],archive:['Archiv','Dokončené kalkulace bezpečně na jednom místě.'],trash:['Koš','Smazané kalkulace můžete obnovit nebo trvale odstranit.'],settings:['Nastavení','Nastavení aplikace.']};$('pz-library-title').textContent=titles[pzLibraryMode][0];$('pz-library-sub').textContent=titles[pzLibraryMode][1];if(pzLibraryMode==='settings'){if(content.querySelector('.pz-s10-panel,.pz-rv-settings'))return;content.innerHTML=window.pzSettingsMarkup||'';window.pzSettingsRefresh?.();return}content.innerHTML=pzLibraryTools(pzLibraryMode)+'<div class="pz-library-list" id="pz-library-list"></div>';const refresh=()=>{let rows=pzRecords().filter(r=>r.type===(pzLibraryMode==='drafts'?'draft':pzLibraryMode));if(pzLibraryMode==='archive'){pzArchiveFilters={search:$('pz-lib-search')?.value||'',from:$('pz-lib-from')?.value||'',to:$('pz-lib-to')?.value||'',sort:$('pz-lib-sort')?.value||'new',status:$('pz-lib-status')?.value||'all'};const total=rows.length;rows=pzArchiveSelect(rows,pzArchiveFilters);if($('pz-lib-count'))$('pz-lib-count').textContent='Zobrazeno '+rows.length+' z '+total+' objednávek';if($('pz-lib-total'))$('pz-lib-total').textContent=total+' objednávek';if($('pz-lib-reset'))$('pz-lib-reset').disabled=!(pzArchiveFilters.search||pzArchiveFilters.from||pzArchiveFilters.to||pzArchiveFilters.status!=='all'||pzArchiveFilters.sort!=='new');}else{const q=($('pz-lib-search')?.value||'').trim().toLocaleLowerCase('cs');const f=$('pz-lib-from')?.value,t=$('pz-lib-to')?.value,sort=$('pz-lib-sort')?.value||'new';if(q)rows=rows.filter(r=>[r.customer,r.phone,r.address,r.company,r.email].some(v=>String(v||'').toLocaleLowerCase('cs').includes(q)));if(f)rows=rows.filter(r=>new Date(r.archivedAt||r.deletedAt||r.updatedAt||0)>=new Date(f+'T00:00:00'));if(t)rows=rows.filter(r=>new Date(r.archivedAt||r.deletedAt||r.updatedAt||0)<=new Date(t+'T23:59:59'));rows.sort((a,b)=>sort==='old'?(a.updatedAt||0)-(b.updatedAt||0):sort==='az'?String(a.customer||'').localeCompare(String(b.customer||''),'cs'):sort==='high'?(b.total||0)-(a.total||0):sort==='low'?(a.total||0)-(b.total||0):(b.updatedAt||0)-(a.updatedAt||0));}const list=$('pz-library-list');list.innerHTML=rows.length?rows.map(pzRecordHtml).join(''):`<div class="pz-empty-state"><strong>${pzLibraryMode==='trash'?'Koš je prázdný':pzLibraryMode==='archive'?'Archiv je zatím prázdný':'Žádné koncepty'}</strong>${pzLibraryMode==='drafts'?'Rozpracované kalkulace se zde objeví automaticky.':'Zatím tu není žádná kalkulace.'}</div>`;list.querySelectorAll('.pz-ac-v2').forEach(el=>el.addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&e.target===el){e.preventDefault();pzaOpen(el.dataset.openRecord)}}));list.querySelectorAll('[data-open-record]').forEach(el=>el.onclick=e=>{if(e.target.closest('button,a,input,select,label,[data-mr-card],.pz-ac-menu')||pzLibraryMode==='trash')return;if(pzLibraryMode==='archive')pzaOpen(el.dataset.openRecord);else pzOpenRecord(el.dataset.openRecord)});list.querySelectorAll('.pz-ac-phone').forEach(a=>a.addEventListener('click',e=>{e.stopPropagation()}));list.querySelectorAll('[data-ac-menu]').forEach(b=>b.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();const m=b.parentElement.querySelector('.pz-ac-menu');if(!m)return;const opening=m.hasAttribute('hidden');list.querySelectorAll('.pz-ac-menu').forEach(x=>{x.setAttribute('hidden','');x.parentElement.querySelector('[data-ac-menu]')?.setAttribute('aria-expanded','false')});if(opening){m.removeAttribute('hidden');b.setAttribute('aria-expanded','true');}}));list.querySelectorAll('.pz-ac-menu').forEach(m=>m.addEventListener('click',e=>{if(!e.target.closest('[data-rv-open]'))e.stopPropagation();}));
+    function pzRenderLibrary(){const content=$('pz-library-content');if(!content)return;const titles={drafts:['Koncepty','Rozpracované kalkulace se ukládají automaticky.'],archive:['Archiv','Dokončené kalkulace bezpečně na jednom místě.'],trash:['Koš','Smazané kalkulace můžete obnovit nebo trvale odstranit.'],settings:['Nastavení','Nastavení aplikace.']};$('pz-library-title').textContent=titles[pzLibraryMode][0];$('pz-library-sub').textContent=titles[pzLibraryMode][1];if(pzLibraryMode==='settings'){if(content.querySelector('.pz-s9-sub,.pz-s10-panel,.pz-rv-settings,.pz-price-preview'))return;content.innerHTML=window.pzSettingsMarkup||'';window.pzSettingsRefresh?.();return}content.innerHTML=pzLibraryTools(pzLibraryMode)+'<div class="pz-library-list" id="pz-library-list"></div>';const refresh=()=>{let rows=pzRecords().filter(r=>r.type===(pzLibraryMode==='drafts'?'draft':pzLibraryMode));if(pzLibraryMode==='archive'){pzArchiveFilters={search:$('pz-lib-search')?.value||'',from:$('pz-lib-from')?.value||'',to:$('pz-lib-to')?.value||'',sort:$('pz-lib-sort')?.value||'new',status:$('pz-lib-status')?.value||'all'};const total=rows.length;rows=pzArchiveSelect(rows,pzArchiveFilters);if($('pz-lib-count'))$('pz-lib-count').textContent='Zobrazeno '+rows.length+' z '+total+' objednávek';if($('pz-lib-total'))$('pz-lib-total').textContent=total+' objednávek';if($('pz-lib-reset'))$('pz-lib-reset').disabled=!(pzArchiveFilters.search||pzArchiveFilters.from||pzArchiveFilters.to||pzArchiveFilters.status!=='all'||pzArchiveFilters.sort!=='new');}else{const q=($('pz-lib-search')?.value||'').trim().toLocaleLowerCase('cs');const f=$('pz-lib-from')?.value,t=$('pz-lib-to')?.value,sort=$('pz-lib-sort')?.value||'new';if(q)rows=rows.filter(r=>[r.customer,r.phone,r.address,r.company,r.email].some(v=>String(v||'').toLocaleLowerCase('cs').includes(q)));if(f)rows=rows.filter(r=>new Date(r.archivedAt||r.deletedAt||r.updatedAt||0)>=new Date(f+'T00:00:00'));if(t)rows=rows.filter(r=>new Date(r.archivedAt||r.deletedAt||r.updatedAt||0)<=new Date(t+'T23:59:59'));rows.sort((a,b)=>sort==='old'?(a.updatedAt||0)-(b.updatedAt||0):sort==='az'?String(a.customer||'').localeCompare(String(b.customer||''),'cs'):sort==='high'?(b.total||0)-(a.total||0):sort==='low'?(a.total||0)-(b.total||0):(b.updatedAt||0)-(a.updatedAt||0));}const list=$('pz-library-list');list.innerHTML=rows.length?rows.map(pzRecordHtml).join(''):(()=>{const kind=pzLibraryMode==='trash'?'trash':pzLibraryMode==='archive'?'archive':'drafts',icons={trash:'<path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7"/>',archive:'<rect x="3" y="4" width="18" height="5" rx="1"/><path d="M5 9v11h14V9M10 13h4"/>',drafts:'<path d="M5 4h10l4 4v12H5zM15 4v4h4M8 13h8M8 17h5"/>'},titles={trash:'Koš je prázdný',archive:'Archiv je prázdný',drafts:'Zatím žádné koncepty'},messages={trash:'Nemáte žádné smazané kalkulace.',archive:'Archivované kalkulace se zobrazí zde.',drafts:'Rozpracované kalkulace se zde objeví automaticky.'};return '<div class="pz-stage2-empty"><span class="pz-stage2-empty-icon"><svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">'+icons[kind]+'</svg></span><strong>'+titles[kind]+'</strong><p>'+messages[kind]+'</p></div>'})();list.querySelectorAll('.pz-ac-v2,.pz-stage2-card').forEach(el=>el.addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&e.target===el){e.preventDefault();pzaOpen(el.dataset.openRecord)}}));list.querySelectorAll('[data-open-record]').forEach(el=>el.onclick=e=>{if(e.target.closest('button,a,input,select,label,[data-mr-card],.pz-ac-menu'))return;pzaOpen(el.dataset.openRecord)});list.querySelectorAll('.pz-ac-phone').forEach(a=>a.addEventListener('click',e=>{e.stopPropagation()}));list.querySelectorAll('[data-ac-menu]').forEach(b=>b.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();const m=b.parentElement.querySelector('.pz-ac-menu');if(!m)return;const opening=m.hasAttribute('hidden');list.querySelectorAll('.pz-ac-menu').forEach(x=>{x.setAttribute('hidden','');x.parentElement.querySelector('[data-ac-menu]')?.setAttribute('aria-expanded','false')});if(opening){m.removeAttribute('hidden');b.setAttribute('aria-expanded','true');}}));list.querySelectorAll('.pz-ac-menu').forEach(m=>m.addEventListener('click',e=>{if(!e.target.closest('[data-rv-open]'))e.stopPropagation();}));
 list.querySelectorAll('[data-ac-trash]').forEach(b=>b.onclick=e=>{
   e.preventDefault();e.stopPropagation();
   const r=pzRecords().find(x=>x.id===b.dataset.acTrash&&x.type==='archive');
@@ -6983,7 +7077,7 @@ list.querySelectorAll('[data-ac-trash]').forEach(b=>b.onclick=e=>{
   document.body.appendChild(overlay);document.addEventListener('keydown',esc,true);
   overlay.querySelector('[data-ac-cancel]').focus();
 });
-list.querySelectorAll('[data-archive-detail]').forEach(b=>b.onclick=e=>{e.stopPropagation();pzaOpen(b.dataset.archiveDetail)});list.querySelectorAll('[data-archive-open]').forEach(b=>b.onclick=e=>{e.stopPropagation();pzOpenRecord(b.dataset.archiveOpen)});list.querySelectorAll('[data-trash]').forEach(b=>b.onclick=e=>{e.stopPropagation();pzMoveTrash(b.dataset.trash)});list.querySelectorAll('[data-restore]').forEach(b=>b.onclick=e=>{e.stopPropagation();pzRestoreTrash(b.dataset.restore)});list.querySelectorAll('[data-forever]').forEach(b=>b.onclick=e=>{e.stopPropagation();pzDeleteForever(b.dataset.forever)})};if(pzLibraryMode==='archive'){$('pz-filter-toggle')?.addEventListener('click',()=>{const panel=$('pz-filter-expanded'),btn=$('pz-filter-toggle');if(!panel||!btn)return;panel.hidden=!panel.hidden;btn.setAttribute('aria-expanded',String(!panel.hidden));btn.setAttribute('aria-label',panel.hidden?'Rozbalit filtry':'Sbalit filtry');});for(const [key,id] of Object.entries({search:'pz-lib-search',from:'pz-lib-from',to:'pz-lib-to',sort:'pz-lib-sort',status:'pz-lib-status'})){if($(id))$(id).value=pzArchiveFilters[key];}$('pz-lib-reset')?.addEventListener('click',()=>{for(const id of ['pz-lib-search','pz-lib-from','pz-lib-to'])if($(id))$(id).value='';if($('pz-lib-status'))$('pz-lib-status').value='all';if($('pz-lib-sort'))$('pz-lib-sort').value='new';refresh()});}['pz-lib-search','pz-lib-from','pz-lib-to','pz-lib-sort','pz-lib-status'].forEach(id=>$(id)?.addEventListener(id==='pz-lib-search'?'input':'change',refresh));$('pz-empty-trash')?.addEventListener('click',async ()=>{if(!confirm('Opravdu chcete koš trvale vysypat?'))return;const trashRows=pzRecords().filter(r=>r.type==='trash');localStorage.setItem(PZ_RECORDS_KEY,JSON.stringify(pzRecords().filter(r=>r.type!=='trash')));pzUpdateCounts();await Promise.all(trashRows.map(r=>pzCloudDeleteRecord(r.id)));pzRenderLibrary()});refresh()}
+list.querySelectorAll('[data-archive-detail]').forEach(b=>b.onclick=e=>{e.stopPropagation();pzaOpen(b.dataset.archiveDetail)});list.querySelectorAll('[data-archive-open]').forEach(b=>b.onclick=e=>{e.stopPropagation();pzOpenRecord(b.dataset.archiveOpen)});list.querySelectorAll('[data-draft-preview]').forEach(b=>b.onclick=e=>{e.stopPropagation();pzDraftPreview(b.dataset.draftPreview)});list.querySelectorAll('[data-draft-edit]').forEach(b=>b.onclick=e=>{e.stopPropagation();pzOpenRecord(b.dataset.draftEdit)});list.querySelectorAll('[data-trash]').forEach(b=>b.onclick=e=>{e.stopPropagation();pzMoveTrash(b.dataset.trash)});list.querySelectorAll('[data-trash-preview]').forEach(b=>b.onclick=e=>{e.stopPropagation();pzaOpen(b.dataset.trashPreview)});list.querySelectorAll('[data-restore]').forEach(b=>b.onclick=e=>{e.stopPropagation();pzRestoreTrash(b.dataset.restore)});list.querySelectorAll('[data-forever]').forEach(b=>b.onclick=e=>{e.stopPropagation();pzDeleteForever(b.dataset.forever)})};if(pzLibraryMode==='archive'){$('pz-filter-toggle')?.addEventListener('click',()=>{const panel=$('pz-filter-expanded'),btn=$('pz-filter-toggle');if(!panel||!btn)return;panel.hidden=!panel.hidden;btn.setAttribute('aria-expanded',String(!panel.hidden));btn.setAttribute('aria-label',panel.hidden?'Rozbalit filtry':'Sbalit filtry');});for(const [key,id] of Object.entries({search:'pz-lib-search',from:'pz-lib-from',to:'pz-lib-to',sort:'pz-lib-sort',status:'pz-lib-status'})){if($(id))$(id).value=pzArchiveFilters[key];}$('pz-lib-reset')?.addEventListener('click',()=>{for(const id of ['pz-lib-search','pz-lib-from','pz-lib-to'])if($(id))$(id).value='';if($('pz-lib-status'))$('pz-lib-status').value='all';if($('pz-lib-sort'))$('pz-lib-sort').value='new';refresh()});}['pz-lib-search','pz-lib-from','pz-lib-to','pz-lib-sort','pz-lib-status'].forEach(id=>$(id)?.addEventListener(id==='pz-lib-search'?'input':'change',refresh));$('pz-empty-trash')?.addEventListener('click',async ()=>{if(!await pzConfirmPermanentDelete(true))return;const trashRows=pzRecords().filter(r=>r.type==='trash');localStorage.setItem(PZ_RECORDS_KEY,JSON.stringify(pzRecords().filter(r=>r.type!=='trash')));pzUpdateCounts();pzRenderLibrary();Promise.allSettled(trashRows.map(r=>pzCloudDeleteRecord(r.id))).then(results=>{if(results.some(r=>r.status==='rejected'||r.value===false))showToast('Smazáno v zařízení, synchronizaci je potřeba zopakovat.');});});refresh()}
     function pzOpenLibrary(mode){window.pzLibraryOpenedFromMenu=!!$('pz-nav-overlay')?.classList.contains('open');pzSaveActiveDraft();pzLibraryMode=mode;pzRenderLibrary();$('pz-library').classList.add('open');$('pz-library').setAttribute('aria-hidden','false');$('pz-nav-overlay').classList.remove('open')}
     function pzCloseLibrary(){$('pz-library').classList.remove('open');$('pz-library').setAttribute('aria-hidden','true');if(window.pzLibraryOpenedFromMenu){$('pz-nav-overlay').classList.add('open');$('pz-nav-overlay').setAttribute('aria-hidden','false');pzUpdateCounts()}window.pzLibraryOpenedFromMenu=false}
     window.pzRenderLibrary=pzRenderLibrary;
@@ -7700,7 +7794,7 @@ html.pz-dark #pz-library-content .pz-s10-clear:hover,html.pz-dark #pz-library-co
   const get=id=>document.getElementById(id);
   const open=id=>!!get(id)?.classList.contains('open');
   const layerIds=['pz-nav-overlay','pz-library','pz-cart-modal','pz-3d-modal','pz-clear-confirm','pz-leave-dialog','pz-archive-detail'];
-  const subpages=[['pz-s9-sub','contacts'],['pz-s10-panel','backup'],['pz-rv-settings','reviews']];
+  const subpages=[['pz-s9-sub','contacts'],['pz-s10-panel','backup'],['pz-rv-settings','reviews'],['pz-price-preview','prices']];
   const base={...(history.state||{}),pzNavBase:true};
   const navKey='pzNavPath';
   let tracked=[],busy=false,queued=false;
@@ -7743,6 +7837,7 @@ html.pz-dark #pz-library-content .pz-s10-clear:hover,html.pz-dark #pz-library-co
     const p=path(),last=p[p.length-1];
     if(!last)return;
     const click=selector=>{const b=document.querySelector(selector);if(b){b.click();return true}return false};
+    if(last==='settings:prices')return void click('#pz-price-back');
     if(last==='settings:contacts')return void click('#pz-s9-back');
     if(last==='settings:backup')return void click('#pz-s10-back');
     if(last==='settings:reviews')return void click('[data-rv-settings-back]');
@@ -7988,3 +8083,263 @@ html.pza-open{overflow:hidden}
 #pz-library .pz-archive-filter-v2 #pz-lib-reset{display:inline-flex;align-items:center;justify-content:center;gap:6px}
 #pz-library .pz-archive-filter-v2 #pz-lib-reset svg{width:14px;height:14px;flex-shrink:0}
 </style>
+
+<style id="pz-pricing-preview-css">
+#pz-library-content .pz-price-preview{padding:12px 2px 35px;font-family:Arial,sans-serif;color:#173b26}
+#pz-library-content .pz-price-header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:8px 0 16px}
+#pz-library-content .pz-price-header h3{margin:0;font-size:24px;letter-spacing:-.6px;color:#104c29}
+#pz-library-content .pz-price-header p{margin:5px 0 0;font-size:13px;color:#728478}
+#pz-library-content .pz-price-back{border:1px solid #d5e3d9;border-radius:10px;padding:9px 13px;background:#fff;color:#104c29;font-weight:700;cursor:pointer}
+#pz-library-content .pz-price-notice{background:#f1f7f2;border:1px solid #d6e7da;border-radius:15px;padding:13px 15px;margin:0 0 16px;color:#235338;font-size:13px;line-height:1.6}
+#pz-library-content .pz-price-tabs{display:flex;gap:7px;margin:14px 0;flex-wrap:wrap}
+#pz-library-content .pz-price-tab{border:1px solid #d6e4da;border-radius:11px;background:#fff;color:#385b44;padding:10px 15px;font-weight:700;cursor:pointer}
+#pz-library-content .pz-price-tab.active{background:#104c29;color:#fff;border-color:#104c29}
+#pz-library-content .pz-price-tools{display:flex;gap:9px;flex-wrap:wrap;margin-bottom:12px}
+#pz-library-content .pz-price-tools input,#pz-library-content .pz-price-tools select{flex:1;min-width:125px;border:1px solid #d5e3d9;border-radius:11px;padding:12px;background:#fff;color:#173b26;font-size:14px}
+#pz-library-content .pz-price-tablewrap{border:1px solid #dce9df;border-radius:15px;background:#fff;overflow:auto}
+#pz-library-content .pz-price-table{width:100%;border-collapse:collapse;min-width:460px;font-size:13px}
+#pz-library-content .pz-price-table th{text-align:left;background:#f2f7f3;color:#587360;font-size:11px;text-transform:uppercase;letter-spacing:.5px;padding:13px}
+#pz-library-content .pz-price-table td{padding:11px 13px;border-top:1px solid #edf2ee;vertical-align:middle}
+#pz-library-content .pz-price-table td:nth-child(2){white-space:nowrap;color:#758579}
+#pz-library-content .pz-price-table input{max-width:120px;width:100%;padding:10px;border:1px solid #d8e4da;border-radius:9px;font-weight:700;color:#104c29;font-size:14px}
+#pz-library-content .pz-price-table input:focus{outline:2px solid #76a78a}
+#pz-library-content .pz-price-footer{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-top:15px}
+#pz-library-content .pz-price-save{background:#104c29;color:#fff;border:0;border-radius:11px;padding:12px 17px;font-weight:700;cursor:pointer}
+#pz-library-content .pz-price-save:disabled{background:#b7c6ba;cursor:not-allowed}
+#pz-library-content .pz-price-reset{border:1px solid #d7e3d9;border-radius:11px;padding:11px;background:#fff;color:#375943;cursor:pointer}
+#pz-library-content .pz-price-muted{color:#778a7c;font-size:12px}
+#pz-library-content .pz-price-preview-banner{font-size:11px;background:#fff4d8;color:#775c1b;padding:6px 10px;border-radius:20px;font-weight:700;white-space:nowrap}
+@media(max-width:560px){#pz-library-content .pz-price-table{min-width:410px}#pz-library-content .pz-price-header h3{font-size:21px}}
+</style>
+<script id="pz-pricing-preview-script">
+(function(){
+'use strict';
+// Testovací lokální ceník řeziva; služby a doprava zůstávají pouze náhledem.
+const items=[
+ ['smrk','Smrk','Trámy',9500,'Kč/m³'],['smrk','Smrk','Prkna stejně široká',7500,'Kč/m³'],['smrk','Smrk','Prkna různě široká 3–5 m',7000,'Kč/m³'],['smrk','Smrk','Prkna různě široká 0,8–2,5 m',5500,'Kč/m³'],['smrk','Smrk','Fošny – standard',9500,'Kč/m³'],['smrk','Smrk','Fošny – 3,2 cm',8500,'Kč/m³'],['smrk','Smrk','Střešní latě 3–5 m',23,'Kč/bm'],['smrk','Smrk','Střešní latě 2 m',18,'Kč/bm'],['smrk','Smrk','Odřezky',800,'Kč/ks'],
+ ['modrin','Modřín','Trámy',11000,'Kč/m³'],['modrin','Modřín','Prkna různě široká 3–5 m',8500,'Kč/m³'],['modrin','Modřín','Fošny',11000,'Kč/m³'],
+ ['dub','Dub','Fošny – 3,2 cm',10000,'Kč/m³'],['dub','Dub','Fošny – 5,2 cm',16000,'Kč/m³'],
+ ['cerveny_dub','Červený dub','Fošny – 3,2 cm',8000,'Kč/m³'],['cerveny_dub','Červený dub','Fošny – 5,2 cm',13000,'Kč/m³'],
+ ['borovice','Borovice','Prkna různě široká 3–5 m',6000,'Kč/m³'],['borovice','Borovice','Fošny – standard',9000,'Kč/m³'],['borovice','Borovice','Fošny – 3,2 cm',8000,'Kč/m³'],['borovice','Borovice','Fošny – neohraněné',8500,'Kč/m³'],['borovice','Borovice','Fošny – neohraněné 3,2 cm',7500,'Kč/m³'],
+ ['services','Služby','Hoblování – 1 strana',500,'Kč/m³'],['services','Služby','Hoblování – 2 strany',1000,'Kč/m³'],['services','Služby','Hoblování – 3 strany',1500,'Kč/m³'],['services','Služby','Hoblování – 4 strany',2000,'Kč/m³'],['services','Služby','Impregnace',500,'Kč/m³'],['services','Služby','Zaříznutí na míru',500,'Kč/m³'],['services','Služby','Sražení hran – 1 plocha',500,'Kč/m³'],['services','Služby','Sražení hran – 2 plochy',1000,'Kč/m³'],
+ ['transport','Doprava','Do 5 m³',50,'Kč/km'],['transport','Doprava','Od 5 m³',100,'Kč/km']
+];
+const limits=['0–5 km','5–10 km','10–15 km','15–20 km','20–25 km','25–30 km','30–50 km'];
+const vehicles=['AK','TRM','TRMS','TRV','TRVS'];
+const rates=[[450,600,750,900,1050],[1200,1600,2000,2400,2800],[1950,2600,3250,3900,4550],[2700,3600,4750,5400,6300],[3450,4600,6250,6900,8050],[4200,5600,7000,8400,9800],[6030,null,null,null,null]];
+limits.forEach((zone,i)=>vehicles.forEach((vehicle,j)=>{if(rates[i][j]!==null)items.push(['transport','Doprava',zone+' · '+vehicle,rates[i][j],'Kč/zóna']);}));
+let values=items.map(x=>x[3]),tab='wood',wood='all',search='';
+const priceStore=window.pzWoodPriceCatalog;
+if(priceStore){const saved=priceStore.read();items.forEach((x,i)=>{const key=x[0]+'|'+x[2];if(x[0]!=='services'&&x[0]!=='transport'&&Object.prototype.hasOwnProperty.call(saved,key))values[i]=Number(saved[key]);});}
+
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const money=n=>Number(n).toLocaleString('cs-CZ');
+function mount(){
+ const content=document.getElementById('pz-library-content');
+ if(!content||!document.getElementById('pz-library')?.classList.contains('open'))return;
+ if(!content.querySelector('.pz-s8-wrap')||content.querySelector('#pz-prices-open'))return;
+ const card=content.querySelector('.pz-s8-card');if(!card)return;
+ const btn=document.createElement('button');btn.type='button';btn.id='pz-prices-open';btn.className='pz-s8-row pz-s9-open';
+ btn.innerHTML='<span class="pz-s8-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 11V4h7l11 11-7 7L3 11Z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg></span><span class="pz-s8-label"><strong>Ceny</strong><small>Správa ceníku řeziva, služeb a dopravy</small></span><span class="pz-s8-chevron" aria-hidden="true">›</span>';
+ btn.addEventListener('click',openPrices);card.prepend(btn);
+}
+function openPrices(){
+ const content=document.getElementById('pz-library-content');if(!content)return;
+ content.innerHTML='<div class="pz-price-preview"><div class="pz-price-header"><button class="pz-price-back" id="pz-price-back" type="button">← Nastavení</button><span class="pz-price-preview-banner">TEST · LOKÁLNÍ CENÍK</span></div><h3 style="margin:0;color:#104c29;font-size:25px">Správa cen</h3><p class="pz-price-muted">Přehled všech výchozích cen v konfigurátoru</p><div class="pz-price-notice"><strong>Testovací verze.</strong> Ceny řeziva se ukládají v tomto prohlížeči a platí pro nově přidané položky. Archiv a již přidané položky zůstávají beze změny. Služby a doprava zatím nejsou propojené. Synchronizace mezi zařízeními zatím není aktivní.</div><div class="pz-price-tabs"><button class="pz-price-tab active" data-price-tab="wood">Řezivo</button><button class="pz-price-tab" data-price-tab="services">Služby</button><button class="pz-price-tab" data-price-tab="transport">Doprava</button></div><div class="pz-price-tools"><input id="pz-price-search" type="search" placeholder="Hledat produkt nebo variantu…"><select id="pz-price-wood"><option value="all">Všechny dřeviny</option><option value="smrk">Smrk</option><option value="modrin">Modřín</option><option value="dub">Dub</option><option value="cerveny_dub">Červený dub</option><option value="borovice">Borovice</option></select></div><div class="pz-price-tablewrap"><table class="pz-price-table"><thead><tr><th>Produkt / varianta</th><th>Jednotka</th><th>Cena bez DPH</th></tr></thead><tbody id="pz-price-rows"></tbody></table></div><div class="pz-price-footer"><span class="pz-price-muted" id="pz-price-count"></span><button class="pz-price-reset" id="pz-price-reset">Obnovit původní ceny</button><button class="pz-price-save" id="pz-price-save">Uložit výchozí ceny</button></div><p class="pz-price-muted" id="pz-price-message" aria-live="polite"></p></div>';
+ content.querySelector('#pz-price-back').onclick=()=>{content.innerHTML=window.pzSettingsMarkup||'';window.pzSettingsRefresh?.();mount();};
+ content.querySelectorAll('[data-price-tab]').forEach(b=>b.onclick=()=>{tab=b.dataset.priceTab;content.querySelectorAll('[data-price-tab]').forEach(x=>x.classList.toggle('active',x===b));render();});
+ content.querySelector('#pz-price-wood').onchange=e=>{wood=e.target.value;render();};
+ content.querySelector('#pz-price-search').oninput=e=>{search=e.target.value.toLocaleLowerCase('cs');render();};
+ content.querySelector('#pz-price-reset').onclick=()=>{values=items.map(x=>x[3]);render();content.querySelector('#pz-price-message').textContent='Původní ceny jsou připravené. Potvrď je tlačítkem Uložit výchozí ceny.';};
+ content.querySelector('#pz-price-save').onclick=()=>{
+   const msg=content.querySelector('#pz-price-message');
+   if(tab!=='wood'){msg.textContent='Služby a doprava zatím nejsou propojené s výpočtem. Přepni na Řezivo.';return}
+   if(!priceStore){msg.textContent='Ceník není dostupný. Zkus obnovit aplikaci.';return}
+   try{
+     const next={};items.forEach((x,i)=>{if(x[0]!=='services'&&x[0]!=='transport')next[x[0]+'|'+x[2]]=values[i]});
+     priceStore.save(next);msg.textContent='Výchozí ceny řeziva uloženy. Nové položky použijí aktuální ceník.';
+   }catch(e){msg.textContent='Ceny se nepodařilo uložit: '+e.message}
+ };
+ render();
+}
+function render(){
+ const content=document.getElementById('pz-library-content');if(!content?.querySelector('.pz-price-preview'))return;
+ const woodFilter=content.querySelector('#pz-price-wood');woodFilter.style.display=tab==='wood'?'':'none';
+ const list=items.map((x,i)=>({x,i})).filter(({x})=>tab==='wood'?!['services','transport'].includes(x[0])&&(wood==='all'||x[0]===wood):x[0]===tab).filter(({x})=>(x[1]+' '+x[2]).toLocaleLowerCase('cs').includes(search));
+ const body=content.querySelector('#pz-price-rows');body.replaceChildren();
+ for(const {x,i} of list){const tr=document.createElement('tr'),name=document.createElement('td'),unit=document.createElement('td'),cell=document.createElement('td'),input=document.createElement('input');name.textContent=x[1]+' · '+x[2];unit.textContent=x[4];input.type='number';input.min='0';input.step='1';input.value=String(values[i]);input.setAttribute('aria-label','Cena: '+x[1]+' '+x[2]);input.disabled=x[0]==='services'||x[0]==='transport';input.addEventListener('wheel',()=>{if(document.activeElement===input)input.blur();},{passive:true});input.oninput=()=>{const n=Number(input.value);if(Number.isFinite(n)&&n>=0)values[i]=n;};cell.append(input);tr.append(name,unit,cell);body.append(tr);}
+ content.querySelector('#pz-price-count').textContent='Zobrazeno '+list.length+' cenových položek';
+}
+const observer=new MutationObserver(()=>{if(document.getElementById('pz-library-content')?.querySelector('.pz-s8-wrap')&&!document.getElementById('pz-prices-open'))mount();});
+function init(){const content=document.getElementById('pz-library-content');if(content){observer.observe(content,{childList:true});mount();}}
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
+})();
+</script>
+
+<style id="pz-stage1-mobile-stability">
+/* Etapa 1: oddělené posouvání knihovny od kalkulátoru pod ní. */
+body:has(#pz-library.open){overflow:hidden!important}
+#pz-library.open{overscroll-behavior:contain;overflow-y:auto;overflow-x:hidden}
+#pz-library-content,#pz-library-content .pz-price-preview{min-width:0;max-width:100%;box-sizing:border-box}
+@media(max-width:600px){
+  #pz-library-content .pz-price-preview{padding:10px 0 24px}
+  #pz-library-content .pz-price-header{flex-wrap:wrap}
+  #pz-library-content .pz-price-tools{display:grid;grid-template-columns:minmax(0,1fr)}
+  #pz-library-content .pz-price-tools input,
+  #pz-library-content .pz-price-tools select{min-width:0;width:100%;box-sizing:border-box}
+  #pz-library-content .pz-price-table{width:100%;min-width:0;table-layout:fixed}
+  #pz-library-content .pz-price-table th,
+  #pz-library-content .pz-price-table td{padding:10px 7px;overflow-wrap:anywhere}
+  #pz-library-content .pz-price-table th:nth-child(1){width:47%}
+  #pz-library-content .pz-price-table th:nth-child(2){width:18%}
+  #pz-library-content .pz-price-table th:nth-child(3){width:35%}
+  #pz-library-content .pz-price-table input{box-sizing:border-box;min-width:0;max-width:100%;font-size:16px;padding:9px 5px}
+}
+</style>
+
+<style id="pz-settings-unified-header-style">
+#pz-library.pz-settings-subpage .pz-library-head{gap:13px}
+#pz-library.pz-settings-subpage .pz-library-head h2{display:flex;align-items:center;gap:11px}
+#pz-library.pz-settings-subpage .pz-library-head .pz-subpage-icon{width:27px;height:27px;display:inline-flex;align-items:center;justify-content:center;color:#104c29}
+#pz-library.pz-settings-subpage .pz-library-head .pz-subpage-icon svg{width:25px;height:25px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+#pz-library.pz-settings-subpage #pz-library-content .pz-price-back,
+#pz-library.pz-settings-subpage #pz-library-content #pz-s9-back,
+#pz-library.pz-settings-subpage #pz-library-content #pz-s10-back,
+#pz-library.pz-settings-subpage #pz-library-content [data-rv-settings-back]{display:none!important}
+#pz-library.pz-settings-subpage #pz-library-content .pz-price-header{justify-content:flex-end}
+#pz-library.pz-settings-subpage #pz-library-content .pz-price-preview>h3,
+#pz-library.pz-settings-subpage #pz-library-content .pz-s9-sub>h2,
+#pz-library.pz-settings-subpage #pz-library-content .pz-rv-settings>h3{display:none}
+</style>
+<script id="pz-settings-unified-header">
+(function(){
+  const root=document.getElementById('pz-library');
+  const content=document.getElementById('pz-library-content');
+  const title=document.getElementById('pz-library-title');
+  const subtitle=document.getElementById('pz-library-sub');
+  const back=document.getElementById('pz-library-close');
+  if(!root||!content||!title||!subtitle||!back)return;
+  const pages=[
+    {sel:'.pz-price-preview',name:'Správa cen',desc:'Výchozí ceny řeziva, služeb a dopravy',back:'#pz-price-back',icon:'<path d="M20 13 11 22 2 13V3h10z"/><circle cx="7.5" cy="8" r="1.5"/>'},
+    {sel:'.pz-s9-sub',name:'Kontakty a zákazníci',desc:'Kontakty z telefonu a našeptávání zákazníků',back:'#pz-s9-back',icon:'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>'},
+    {sel:'.pz-s10-panel',name:'Záloha a obnovení',desc:'Bezpečné zálohování a obnova kalkulací',back:'#pz-s10-back',icon:'<path d="M12 3v12m-5-5 5 5 5-5M4 17v4h16v-4"/>'},
+    {sel:'.pz-rv-settings',name:'Odesílání recenzí',desc:'E-mail, WhatsApp, SMS a časový odstup',back:'[data-rv-settings-back]',icon:'<path d="M20 11.5a7.5 7.5 0 0 1-7.5 7.5H5l-3 3v-7.5A7.5 7.5 0 0 1 9.5 7h3A7.5 7.5 0 0 1 20 11.5Z"/><path d="m8 12 2 2 4-4"/>'}
+  ];
+  let active=null;
+  function sync(){
+    if(!root.classList.contains('open'))return;
+    const page=pages.find(p=>content.querySelector(p.sel))||null;
+    if(page===active)return;
+    active=page;
+    root.classList.toggle('pz-settings-subpage',!!page);
+    title.textContent=page?page.name:'Nastavení';
+    subtitle.textContent=page?page.desc:'Nastavení aplikace.';
+    if(page){
+      const span=document.createElement('span');
+      span.className='pz-subpage-icon';
+      span.setAttribute('aria-hidden','true');
+      span.innerHTML='<svg viewBox="0 0 24 24">'+page.icon+'</svg>';
+      title.prepend(span);
+      back.setAttribute('aria-label','Zpět do Nastavení');
+    }else{
+      back.setAttribute('aria-label','Zpět');
+    }
+  }
+  const observer=new MutationObserver(sync);
+  observer.observe(content,{childList:true,subtree:true});
+  back.addEventListener('click',function(event){
+    if(!active)return;
+    event.stopImmediatePropagation();
+    event.preventDefault();
+    const original=content.querySelector(active.back);
+    if(original){original.click();}
+    else {content.innerHTML=window.pzSettingsMarkup||'';window.pzSettingsRefresh?.();}
+    sync();
+  },true);
+  sync();
+})();
+</script>
+<style id="pz-stage2-visual">
+#pz-library .pz-stage2-card{display:block;cursor:default;padding:17px 19px;border-radius:20px;transition:border-color .15s,box-shadow .15s}
+#pz-library .pz-stage2-card:hover{transform:none}
+#pz-library .pz-stage2-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
+#pz-library .pz-stage2-identity{min-width:0;display:flex;flex-direction:column;align-items:flex-start;gap:5px}
+#pz-library .pz-stage2-identity>strong{font-size:18px;color:var(--pz-green-dark);overflow-wrap:anywhere}
+#pz-library .pz-stage2-identity>small,#pz-library .pz-stage2-price>small{font-size:12px;color:var(--pz-muted)}
+#pz-library .pz-stage2-status{font-size:11px;font-weight:750;border-radius:30px;background:#edf6ef;color:#276d3d;padding:5px 10px}
+#pz-library .pz-stage2-status.is-trash{background:#fff0f0;color:#a43c3c}
+#pz-library .pz-stage2-price{text-align:right;white-space:nowrap;display:flex;flex-direction:column;gap:4px}
+#pz-library .pz-stage2-price strong{font-size:18px;color:var(--pz-green-dark)}
+#pz-library .pz-stage2-info{display:flex;gap:8px 18px;flex-wrap:wrap;padding:15px 0 13px;color:var(--pz-muted);font-size:13px}
+#pz-library .pz-stage2-info span{display:inline-flex;align-items:center;gap:6px;min-width:0;overflow-wrap:anywhere}
+#pz-library .pz-stage2-info svg{width:15px;height:15px;flex-shrink:0}
+#pz-library .pz-stage2-foot{border-top:1px solid var(--pz-border);padding-top:12px;display:flex;align-items:center;justify-content:space-between;gap:10px}
+#pz-library .pz-stage2-number{font-size:11px;color:var(--pz-muted)}
+#pz-library .pz-stage2-actions{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
+#pz-library .pz-stage2-action{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:42px;padding:9px 12px;border:1px solid var(--pz-border);border-radius:11px;background:var(--pz-card);color:var(--pz-green-dark);font-size:12px;font-weight:750;cursor:pointer}
+#pz-library .pz-stage2-action.icon-only{width:42px;padding:8px}
+#pz-library .pz-stage2-action.danger{color:#a43c3c;border-color:#eacaca}
+#pz-library .pz-stage2-action:hover{background:var(--pz-green-soft)}
+#pz-library .pz-stage2-empty{background:var(--pz-card);border:1px solid var(--pz-border);border-radius:21px;padding:50px 18px;text-align:center;display:flex;align-items:center;flex-direction:column;gap:10px}
+#pz-library .pz-stage2-empty-icon{display:grid;place-items:center;width:64px;height:64px;border-radius:20px;background:var(--pz-green-soft);color:var(--pz-green-dark)}
+#pz-library .pz-stage2-empty strong{font-size:18px;color:var(--pz-green-dark)}
+#pz-library .pz-stage2-empty p{font-size:13px;color:var(--pz-muted);margin:0}
+.pz-stage2-preview-overlay{position:fixed;inset:0;z-index:1000040;background:rgba(15,30,18,.55);display:flex;align-items:center;justify-content:center;padding:16px}
+.pz-stage2-preview-dialog{background:#fff;color:#223c2b;border-radius:22px;width:min(470px,100%);padding:22px;box-shadow:0 20px 60px #0004}
+.pz-stage2-preview-head{display:flex;justify-content:space-between;align-items:center;gap:12px}.pz-stage2-preview-head h3{margin:0}.pz-stage2-preview-head button{border:0;background:#f0f5f1;border-radius:9px;padding:5px 11px;font-size:25px;cursor:pointer}
+.pz-stage2-preview-name{display:block;font-size:18px;margin:16px 0}.pz-stage2-preview-rows{display:grid;gap:12px}.pz-stage2-preview-rows>div{display:flex;justify-content:space-between;gap:14px;border-bottom:1px solid #e3ebe5;padding-bottom:9px;font-size:13px}.pz-stage2-preview-rows span{color:#657569}.pz-stage2-preview-rows b{text-align:right;overflow-wrap:anywhere}
+.pz-stage2-preview-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:22px}.pz-stage2-preview-actions button{border:1px solid #cddfd0;border-radius:10px;padding:11px 13px;background:#f5faf6;cursor:pointer}.pz-stage2-preview-actions button:last-child{background:#104c29;color:#fff}
+#pz-library .pz-stage2-heading-icon{display:inline-flex;align-items:center;justify-content:center;margin-right:10px;color:#104c29;vertical-align:middle}
+@media(max-width:550px){#pz-library .pz-stage2-card{padding:14px}#pz-library .pz-stage2-head{gap:7px}#pz-library .pz-stage2-price strong{font-size:15px}#pz-library .pz-stage2-identity>strong{font-size:16px}#pz-library .pz-stage2-foot{align-items:flex-end}#pz-library .pz-stage2-actions{gap:6px}#pz-library .pz-stage2-action{padding:8px 9px}}
+</style>
+<style id="pz-stage2-compact-final">
+#pz-library .pz-stage2-card{cursor:pointer;padding:12px 15px;border-radius:16px}
+#pz-library .pz-stage2-card:hover{border-color:var(--pz-green-dark)}
+#pz-library .pz-stage2-head{gap:10px;align-items:flex-start}
+#pz-library .pz-stage2-identity{gap:3px;min-width:0;flex:1 1 auto}
+#pz-library .pz-stage2-identity>strong{font-size:16px;line-height:1.3}
+#pz-library .pz-stage2-date{display:block;white-space:nowrap!important;word-break:keep-all;overflow-wrap:normal!important;font-variant-numeric:tabular-nums;line-height:1.35}
+#pz-library .pz-stage2-price{flex:0 0 auto;gap:2px;min-width:max-content}
+#pz-library .pz-stage2-gross{display:flex;align-items:baseline;justify-content:flex-end;gap:4px;white-space:nowrap}
+#pz-library .pz-stage2-gross strong{font-size:18px;white-space:nowrap}
+#pz-library .pz-stage2-gross span{font-size:11px;color:var(--pz-muted);white-space:nowrap}
+#pz-library .pz-stage2-price>small{white-space:nowrap;font-size:11px}
+#pz-library .pz-stage2-status{padding:3px 8px}
+#pz-library .pz-stage2-bottom{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:7px}
+#pz-library .pz-stage2-info{padding:0;gap:6px 12px;min-width:0}
+#pz-library .pz-stage2-actions{flex-shrink:0;flex-wrap:nowrap;gap:7px}
+#pz-library .pz-stage2-action{min-height:36px;padding:7px 10px}
+#pz-library .pz-stage2-action.icon-only{width:36px;padding:7px}
+@media(max-width:420px){
+ #pz-library .pz-stage2-card{padding:11px}
+ #pz-library .pz-stage2-identity>strong{font-size:14px}
+ #pz-library .pz-stage2-date{font-size:10px}
+ #pz-library .pz-stage2-gross strong{font-size:14px}
+ #pz-library .pz-stage2-gross span,#pz-library .pz-stage2-price>small{font-size:10px}
+ #pz-library .pz-stage2-head{gap:5px}
+ #pz-library .pz-stage2-info{font-size:11px}
+ #pz-library .pz-stage2-action{font-size:11px;padding:6px}
+ #pz-library .pz-stage2-action.icon-only{width:34px}
+}
+@media(max-width:330px){#pz-library .pz-stage2-head{flex-wrap:wrap}#pz-library .pz-stage2-price{margin-left:auto}}
+</style>
+<style id="pz-delete-confirm-style">
+.pz-delete-confirm-overlay{position:fixed;inset:0;z-index:2147483000;background:rgba(8,17,12,.64);display:flex;align-items:center;justify-content:center;padding:18px;backdrop-filter:blur(3px)}
+.pz-delete-confirm-dialog{box-sizing:border-box;width:min(100%,400px);padding:25px 23px 21px;border-radius:20px;background:#fff;color:#1b2b20;border:1px solid #e5ebe7;box-shadow:0 22px 75px rgba(0,0,0,.25);text-align:center;font-family:inherit}
+.pz-delete-confirm-icon{width:60px;height:60px;margin:0 auto 13px;display:flex;align-items:center;justify-content:center;border-radius:18px;background:#fff0ef;color:#c83b34}
+.pz-delete-confirm-dialog h2{font-family:inherit;font-size:20px;line-height:1.25;font-weight:750;margin:0 0 10px;color:#192d20}
+.pz-delete-confirm-dialog p{font-family:inherit;font-size:14px;line-height:1.55;color:#65716a;margin:0 0 23px}
+.pz-delete-confirm-buttons{display:flex;gap:10px}
+.pz-delete-confirm-buttons button{font-family:inherit;font-weight:650;font-size:14px;min-height:44px;flex:1;border-radius:11px;cursor:pointer}
+.pz-delete-confirm-buttons [data-cancel]{background:#f5f7f5;border:1px solid #dfe6e0;color:#314237}
+.pz-delete-confirm-buttons [data-approve]{background:#c93632;border:1px solid #c93632;color:#fff}
+.pz-delete-confirm-buttons button:focus-visible{outline:3px solid #80b69b;outline-offset:2px}
+@media(max-width:360px){.pz-delete-confirm-dialog{padding:21px 16px}.pz-delete-confirm-buttons{gap:7px}}
+</style>
+<style id="pz-delete-feedback-style">
+.pz-delete-confirm-buttons button{transition:background-color .12s ease,transform .1s ease,box-shadow .12s ease}
+.pz-delete-confirm-buttons button:active{transform:scale(.96)}
+.pz-delete-confirm-buttons [data-approve]:active{background:#a92523;box-shadow:0 0 0 4px rgba(201,54,50,.12)}
+.pz-stage2-card{transition:opacity .12s ease,transform .12s ease}
+</style>
+<script id="pz-stage2-heading-script">(function(){const lib=document.getElementById('pz-library'),h=document.getElementById('pz-library-title');if(!lib||!h)return;const icons={drafts:'<path d="M5 4h10l4 4v12H5zM15 4v4h4M8 13h8M8 17h5"/>',archive:'<rect x="3" y="4" width="18" height="5" rx="1"/><path d="M5 9v11h14V9M10 13h4"/>',trash:'<path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7"/>'};let pending=false;const sync=()=>{pending=false;if(!lib.classList.contains('open')||lib.classList.contains('pz-settings-subpage'))return;const name=h.textContent.trim(),key=name==='Koncepty'?'drafts':name==='Archiv'?'archive':name==='Koš'?'trash':null;if(!key)return;if(h.querySelector('.pz-stage2-heading-icon'))return;const span=document.createElement('span');span.className='pz-stage2-heading-icon';span.setAttribute('aria-hidden','true');span.innerHTML='<svg viewBox="0 0 24 24" width="25" height="25" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'+icons[key]+'</svg>';h.prepend(span)};const obs=new MutationObserver(()=>{if(!pending){pending=true;queueMicrotask(sync)}});obs.observe(h,{childList:true});obs.observe(lib,{attributes:true,attributeFilter:['class']});sync()})();</script>
