@@ -3871,7 +3871,7 @@ html.pz-dark #pz-library .pz-ac-status,html.pz-dark #pz-library .pz-ac-kg,html.p
       window.dispatchEvent(new Event('pz-price-cloud-loaded'));
       return pzCatalogVersion;
     }
-    window.pzWoodPriceCatalog={read:pzReadWoodPrices,keys:Object.keys({...PZ_PRICE_MAP,...PZ_TRANSPORT_MAP,...PZ_SERVICE_MAP}),load:pzLoadCloudCatalog,save:pzSaveCloudCatalog};
+    window.pzWoodPriceCatalog={read:pzReadWoodPrices,keys:Object.keys({...PZ_PRICE_MAP,...PZ_TRANSPORT_MAP,...PZ_SERVICE_MAP}),load:pzLoadCloudCatalog,save:pzSaveCloudCatalog,history:async()=>{const user=await pzGetCurrentUser();if(!user)throw new Error('Nejdříve se přihlas.');const {data,error}=await pzSupabase.from('price_catalog_history').select('item_key,old_price,new_price,changed_at').eq('user_id',user.id).order('changed_at',{ascending:false}).limit(150);if(error)throw error;return data||[]}};
     let pzPriceRefreshTimer=0;
     function pzRefreshCloudOnReturn(){
       if(document.hidden||!navigator.onLine||document.querySelector('#pz-price-save'))return;
@@ -7959,7 +7959,13 @@ html.pz-dark #pz-library-content .pz-s10-clear:hover,html.pz-dark #pz-library-co
     },0);
   });
   // Observe subpage replacements as well as modal open/close transitions.
-  const observer=new MutationObserver(schedule);
+  function renderStatus(count){
+ const content=document.getElementById('pz-library-content');if(!content?.querySelector('#pz-price-count'))return;
+ content.querySelector('#pz-price-count').textContent=(count===undefined?'':('Zobrazeno '+count+' položek · '))+dirty()+' neuložených změn';
+ const save=content.querySelector('#pz-price-save');if(save)save.disabled=dirty()===0;
+}
+window.addEventListener('beforeunload',e=>{if(document.getElementById('pz-price-save')&&dirty()){e.preventDefault();e.returnValue='';}});
+const observer=new MutationObserver(schedule);
   for(const id of layerIds){const el=get(id);if(el)observer.observe(el,{attributes:true,attributeFilter:['class']})}
   const content=get('pz-library-content');if(content)observer.observe(content,{childList:true,subtree:false});
   document.addEventListener('click',schedule,true);
@@ -8203,6 +8209,12 @@ html.pza-open{overflow:hidden}
 #pz-library-content .pz-price-muted{color:#778a7c;font-size:12px}
 #pz-library-content .pz-price-preview-banner{font-size:11px;background:#fff4d8;color:#775c1b;padding:6px 10px;border-radius:20px;font-weight:700;white-space:nowrap}
 @media(max-width:560px){#pz-library-content .pz-price-table{min-width:410px}#pz-library-content .pz-price-header h3{font-size:21px}}
+#pz-library-content .pz-price-changed{display:flex;align-items:center;gap:6px;padding:8px 10px;background:#f3f8f4;border-radius:11px;font-size:13px;color:#104c29}
+#pz-library-content .pz-price-changed input{min-width:auto;flex:0 0 auto}
+#pz-library-content #pz-price-history-panel{margin-top:16px;padding:14px;background:#f5f9f6;border:1px solid #d6e4da;border-radius:14px}
+#pz-library-content .pz-history-line{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 0;border-top:1px solid #e0e9e2;font-size:12px}
+#pz-library-content .pz-history-line button{border:1px solid #bed3c3;border-radius:9px;padding:8px;color:#104c29;background:#fff;cursor:pointer}
+@media(max-width:560px){#pz-library-content .pz-price-table{min-width:0}#pz-library-content .pz-price-table th:nth-child(2),#pz-library-content .pz-price-table td:nth-child(2){display:none}#pz-library-content .pz-price-table td{padding:10px 7px}#pz-library-content .pz-price-table input{max-width:105px}#pz-library-content .pz-price-footer button{flex:1 1 auto}}
 </style>
 <script id="pz-pricing-preview-script">
 (function(){
@@ -8221,10 +8233,12 @@ const limits=['0–5 km','5–10 km','10–15 km','15–20 km','20–25 km','25�
 const vehicles=['AK','TRM','TRMS','TRV','TRVS'];
 const rates=[[450,600,750,900,1050],[1200,1600,2000,2400,2800],[1950,2600,3250,3900,4550],[2700,3600,4750,5400,6300],[3450,4600,6250,6900,8050],[4200,5600,7000,8400,9800],[6030,null,null,null,null]];
 limits.forEach((zone,i)=>vehicles.forEach((vehicle,j)=>{if(rates[i][j]!==null)items.push(['transport','Doprava',zone+' · '+vehicle,rates[i][j],'Kč/zóna']);}));
-let values=items.map(x=>x[3]),tab='wood',wood='all',search='';
+let values=items.map(x=>x[3]),baseline=values.slice(),tab='wood',wood='all',search='',onlyChanged=false;
 const priceStore=window.pzWoodPriceCatalog;
 if(priceStore){const saved=priceStore.read();items.forEach((x,i)=>{const key=x[0]+'|'+x[2];if(Object.prototype.hasOwnProperty.call(saved,key))values[i]=Number(saved[key]);});}
 
+const dirty=()=>values.reduce((n,v,i)=>n+(v!==baseline[i]?1:0),0);
+const confirmLeave=()=>!dirty()||confirm('Máš '+dirty()+' neuložených změn. Opravdu je zahodit?');
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const money=n=>Number(n).toLocaleString('cs-CZ');
 function mount(){
@@ -8237,14 +8251,43 @@ function mount(){
  btn.addEventListener('click',openPrices);card.prepend(btn);
 }
 async function openPrices(){
+ tab='wood';wood='all';search='';onlyChanged=false;
  const content=document.getElementById('pz-library-content');if(!content)return;
  try{await priceStore.load();const saved=priceStore.read();items.forEach((x,i)=>{values[i]=Object.prototype.hasOwnProperty.call(saved,x[0]+'|'+x[2])?Number(saved[x[0]+'|'+x[2]]):x[3]});}catch(error){console.warn('Ceník offline:',error);}
- content.innerHTML='<div class="pz-price-preview"><div class="pz-price-header"><button class="pz-price-back" id="pz-price-back" type="button">← Nastavení</button><span class="pz-price-preview-banner">CENÍK · SUPABASE</span></div><h3 style="margin:0;color:#104c29;font-size:25px">Správa cen</h3><p class="pz-price-muted">Přehled všech výchozích cen v konfigurátoru</p><div class="pz-price-notice"><strong>Cloudový ceník.</strong> Ceny řeziva, dopravy a služeb se ukládají do Supabase a načítají na všech přihlášených zařízeních. Starší položky a Archiv zůstávají beze změny. Při nedostupném internetu se použije poslední místní kopie; pro uložení změn je nutné připojení.</div><div class="pz-price-tabs"><button class="pz-price-tab active" data-price-tab="wood">Řezivo</button><button class="pz-price-tab" data-price-tab="services">Služby</button><button class="pz-price-tab" data-price-tab="transport">Doprava</button></div><div class="pz-price-tools"><input id="pz-price-search" type="search" placeholder="Hledat produkt nebo variantu…"><select id="pz-price-wood"><option value="all">Všechny dřeviny</option><option value="smrk">Smrk</option><option value="modrin">Modřín</option><option value="dub">Dub</option><option value="cerveny_dub">Červený dub</option><option value="borovice">Borovice</option></select></div><div class="pz-price-tablewrap"><table class="pz-price-table"><thead><tr><th>Produkt / varianta</th><th>Jednotka</th><th>Cena bez DPH</th></tr></thead><tbody id="pz-price-rows"></tbody></table></div><div class="pz-price-footer"><span class="pz-price-muted" id="pz-price-count"></span><button class="pz-price-reset" id="pz-price-reset">Obnovit původní ceny</button><button class="pz-price-save" id="pz-price-save">Uložit výchozí ceny</button></div><p class="pz-price-muted" id="pz-price-message" aria-live="polite"></p></div>';
- content.querySelector('#pz-price-back').onclick=()=>{content.innerHTML=window.pzSettingsMarkup||'';window.pzSettingsRefresh?.();mount();};
+ baseline=values.slice();content.innerHTML='<div class="pz-price-preview"><div class="pz-price-header"><button class="pz-price-back" id="pz-price-back" type="button">← Nastavení</button><span class="pz-price-preview-banner">CENÍK · SUPABASE</span></div><h3 style="margin:0;color:#104c29;font-size:25px">Správa cen</h3><p class="pz-price-muted">Přehled všech výchozích cen v konfigurátoru</p><div class="pz-price-notice"><strong>Cloudový ceník.</strong> Ceny řeziva, dopravy a služeb se ukládají do Supabase a načítají na všech přihlášených zařízeních. Starší položky a Archiv zůstávají beze změny. Při nedostupném internetu se použije poslední místní kopie; pro uložení změn je nutné připojení.</div><div class="pz-price-tabs"><button class="pz-price-tab active" data-price-tab="wood">Řezivo</button><button class="pz-price-tab" data-price-tab="services">Služby</button><button class="pz-price-tab" data-price-tab="transport">Doprava</button></div><div class="pz-price-tools"><input id="pz-price-search" type="search" placeholder="Hledat produkt nebo variantu…"><label class="pz-price-changed"><input type="checkbox" id="pz-price-changed"> Pouze upravené</label><select id="pz-price-wood"><option value="all">Všechny dřeviny</option><option value="smrk">Smrk</option><option value="modrin">Modřín</option><option value="dub">Dub</option><option value="cerveny_dub">Červený dub</option><option value="borovice">Borovice</option></select></div><div class="pz-price-tablewrap"><table class="pz-price-table"><thead><tr><th>Produkt / varianta</th><th>Jednotka</th><th>Cena bez DPH</th></tr></thead><tbody id="pz-price-rows"></tbody></table></div><div class="pz-price-footer"><span class="pz-price-muted" id="pz-price-count"></span><button class="pz-price-reset" id="pz-price-history">Historie změn</button><button class="pz-price-reset" id="pz-price-bulk">Hromadná změna %</button><button class="pz-price-reset" id="pz-price-reset">Obnovit původní ceny</button><button class="pz-price-save" id="pz-price-save">Uložit výchozí ceny</button></div><p class="pz-price-muted" id="pz-price-message" aria-live="polite"></p><div id="pz-price-history-panel" hidden></div></div>';
+ content.querySelector('#pz-price-back').onclick=()=>{if(!confirmLeave())return;content.innerHTML=window.pzSettingsMarkup||'';window.pzSettingsRefresh?.();mount();};
  content.querySelectorAll('[data-price-tab]').forEach(b=>b.onclick=()=>{tab=b.dataset.priceTab;content.querySelectorAll('[data-price-tab]').forEach(x=>x.classList.toggle('active',x===b));render();});
  content.querySelector('#pz-price-wood').onchange=e=>{wood=e.target.value;render();};
  content.querySelector('#pz-price-search').oninput=e=>{search=e.target.value.toLocaleLowerCase('cs');render();};
- content.querySelector('#pz-price-reset').onclick=()=>{values=items.map(x=>x[3]);render();content.querySelector('#pz-price-message').textContent='Původní ceny jsou připravené. Potvrď je tlačítkem Uložit výchozí ceny.';};
+ content.querySelector('#pz-price-changed').onchange=e=>{onlyChanged=e.target.checked;render();};
+ content.querySelector('#pz-price-history').onclick=async()=>{
+  const panel=content.querySelector('#pz-price-history-panel');if(!panel.hidden){panel.hidden=true;return}
+  panel.hidden=false;panel.textContent='Načítám historii…';
+  try{
+   const history=await priceStore.history();panel.replaceChildren();
+   const heading=document.createElement('h4');heading.textContent='Posledních 150 cenových změn';panel.append(heading);
+   if(!history.length){const empty=document.createElement('p');empty.textContent='Zatím žádné změny.';panel.append(empty);}
+   for(const h of history){
+    const item=items.find(x=>x[0]+'|'+x[2]===h.item_key);
+    const line=document.createElement('div');line.className='pz-history-line';
+    const info=document.createElement('span');info.textContent=(item?item[1]+' · '+item[2]:h.item_key)+' · '+(h.old_price===null?'Nová cena':money(h.old_price)+' → '+money(h.new_price))+' Kč · '+new Date(h.changed_at).toLocaleString('cs-CZ');line.append(info);
+    if(item&&h.old_price!==null){const button=document.createElement('button');button.type='button';button.textContent='Obnovit '+money(h.old_price)+' Kč';button.onclick=()=>{values[items.indexOf(item)]=Number(h.old_price);render();content.querySelector('#pz-price-message').textContent='Cena připravena. Potvrď uložením.';};line.append(button);}
+    panel.append(line);
+   }
+  }catch(e){panel.textContent='Historii nelze načíst: '+e.message;}
+ };
+ content.querySelector('#pz-price-bulk').onclick=()=>{
+  const raw=prompt('O kolik procent změnit ceny v aktuální kategorii? Například 5 nebo -5.');if(raw===null)return;
+  const pct=Number(raw.replace(',','.'));if(!Number.isFinite(pct)||pct<=-100||pct>100){alert('Zadej hodnotu větší než -100 a nejvýše 100.');return}
+  const ids=items.map((x,i)=>({x,i})).filter(({x})=>tab==='wood'?!['services','transport'].includes(x[0])&&(wood==='all'||x[0]===wood):x[0]===tab).map(x=>x.i);
+  if(!confirm('Upravit '+ids.length+' cen o '+pct+' %? Změny bude nutné uložit.'))return;
+  ids.forEach(i=>values[i]=Math.max(0,Math.round(values[i]*(1+pct/100))));render();
+ };
+ content.querySelector('#pz-price-reset').onclick=()=>{
+ const ids=items.map((x,i)=>({x,i})).filter(({x})=>tab==='wood'?!['services','transport'].includes(x[0])&&(wood==='all'||x[0]===wood):x[0]===tab).map(x=>x.i);
+ if(!confirm('Obnovit '+ids.length+' výchozích cen aktuální kategorie?'))return;
+ ids.forEach(i=>values[i]=items[i][3]);render();content.querySelector('#pz-price-message').textContent='Původní ceny připravené. Potvrď uložením.';
+ };
  content.querySelector('#pz-price-save').onclick=async()=>{
    const msg=content.querySelector('#pz-price-message');const saveButton=content.querySelector('#pz-price-save');
    saveButton.disabled=true;msg.textContent='Ukládám ceník do Supabase…';
@@ -8252,7 +8295,7 @@ async function openPrices(){
    if(!priceStore){msg.textContent='Ceník není dostupný. Zkus obnovit aplikaci.';saveButton.disabled=false;return}
    try{
      const next={};items.forEach((x,i)=>{next[x[0]+'|'+x[2]]=values[i]});
-     await priceStore.save(next);msg.textContent='Ceník uložen do Supabase. Nové položky na všech zařízeních použijí aktuální ceny.';
+     await priceStore.save(next);baseline=values.slice();render();msg.textContent='Ceník uložen do Supabase. Nové položky na všech zařízeních použijí aktuální ceny.';
    }catch(e){msg.textContent='Cloudové uložení se nezdařilo: '+e.message+' Změny nebyly potvrzeny.';console.error('PZ ceník:',e)}
    finally{saveButton.disabled=false;}
  };
@@ -8261,10 +8304,10 @@ async function openPrices(){
 function render(){
  const content=document.getElementById('pz-library-content');if(!content?.querySelector('.pz-price-preview'))return;
  const woodFilter=content.querySelector('#pz-price-wood');woodFilter.style.display=tab==='wood'?'':'none';
- const list=items.map((x,i)=>({x,i})).filter(({x})=>tab==='wood'?!['services','transport'].includes(x[0])&&(wood==='all'||x[0]===wood):x[0]===tab).filter(({x})=>(x[1]+' '+x[2]).toLocaleLowerCase('cs').includes(search));
+ const list=items.map((x,i)=>({x,i})).filter(({x})=>tab==='wood'?!['services','transport'].includes(x[0])&&(wood==='all'||x[0]===wood):x[0]===tab).filter(({x,i})=>(!onlyChanged||values[i]!==x[3])&&(x[1]+' '+x[2]).toLocaleLowerCase('cs').includes(search));
  const body=content.querySelector('#pz-price-rows');body.replaceChildren();
- for(const {x,i} of list){const tr=document.createElement('tr'),name=document.createElement('td'),unit=document.createElement('td'),cell=document.createElement('td'),input=document.createElement('input');name.textContent=x[1]+' · '+x[2];unit.textContent=x[4];input.type='number';input.min='0';input.step='1';input.value=String(values[i]);input.setAttribute('aria-label','Cena: '+x[1]+' '+x[2]);input.addEventListener('wheel',()=>{if(document.activeElement===input)input.blur();},{passive:true});input.oninput=()=>{const n=Number(input.value);if(Number.isFinite(n)&&n>=0)values[i]=n;};cell.append(input);tr.append(name,unit,cell);body.append(tr);}
- content.querySelector('#pz-price-count').textContent='Zobrazeno '+list.length+' cenových položek';
+ for(const {x,i} of list){const tr=document.createElement('tr'),name=document.createElement('td'),unit=document.createElement('td'),cell=document.createElement('td'),input=document.createElement('input');name.textContent=x[1]+' · '+x[2];unit.textContent=x[4];input.type='number';input.min='0';input.step='1';input.value=String(values[i]);input.setAttribute('aria-label','Cena: '+x[1]+' '+x[2]);input.addEventListener('wheel',()=>{if(document.activeElement===input)input.blur();},{passive:true});input.oninput=()=>{const n=Number(input.value);if(input.value!==''&&Number.isFinite(n)&&n>=0){values[i]=n;renderStatus();}};input.onblur=()=>{if(input.value===''||!Number.isFinite(Number(input.value))||Number(input.value)<0)input.value=String(values[i]);};cell.append(input);tr.append(name,unit,cell);body.append(tr);}
+ renderStatus(list.length);
 }
 const observer=new MutationObserver(()=>{if(document.getElementById('pz-library-content')?.querySelector('.pz-s8-wrap')&&!document.getElementById('pz-prices-open'))mount();});
 function init(){const content=document.getElementById('pz-library-content');if(content){observer.observe(content,{childList:true});mount();}}
