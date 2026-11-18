@@ -6954,24 +6954,25 @@ function pzConfirmPermanentDelete(all=false){
     function pzReviewStatus(r){if(['progress','waiting','completed','cancelled'].includes(r.reviewStatus))return r.reviewStatus;return pzReviewDelivered(r)?'completed':'progress';}
     function pzReviewCardClass(r){return ({completed:' pz-rv-completed',cancelled:' pz-rv-cancelled',waiting:' pz-rv-waiting'})[pzReviewStatus(r)]||'';}
     function pzReviewChannel(r,channel){return r.manualReview?.channels?.[channel]||((r.manualReview?.sentAt&&r.manualReview?.channel===channel)?{sentAt:r.manualReview.sentAt}:{});}
+    function pzReviewSent(r){const m=r.manualReview||{};if(typeof m.reviewSent==='boolean')return m.reviewSent;return Boolean(m.sentAt||pzReviewChannel(r,'sms').sentAt||pzReviewChannel(r,'whatsapp').sentAt);}
     function pzReviewLinks(r){const phone=pzManualPhone(r.phone);if(!phone)return null;const text=encodeURIComponent(pzManualText(r)),ios=/iPad|iPhone|iPod/.test(navigator.userAgent)||(/Macintosh/.test(navigator.userAgent)&&navigator.maxTouchPoints>1),mobile=ios||/Android/i.test(navigator.userAgent),whatsappWeb='https://wa.me/'+phone.slice(1)+'?text='+text;return {whatsapp:mobile?'whatsapp://send?phone='+phone.slice(1)+'&text='+text:whatsappWeb,whatsappWeb,sms:'sms:'+phone+(ios?'&':'?')+'body='+text};}
     function pzReviewDialogRender(id){
       const r=pzRecords().find(r=>r.id===id&&r.type==='archive');if(!r)return;
       const d=pzReviewShell(),s=pzReviewSettings(),status=pzReviewStatus(r),job=pzReviewJobs.get(id),phone=pzManualPhone(r.phone),links=pzReviewLinks(r);
       const noWa=String(s.noWhatsApp||'').split(/[\n,;]/).map(pzManualPhone).includes(phone)||pzRecords().some(x=>phone&&pzManualPhone(x.phone)===phone&&x.manualReview?.noWhatsApp);
-      const stamp=v=>pzEsc(pzDate(v)),disabled=pzReviewBusy?'disabled':'',blocked=status!=='completed';
+      const stamp=v=>pzEsc(pzDate(v)),disabled=pzReviewBusy?'disabled':'',blocked=status!=='completed',sent=pzReviewSent(r);
       const header=`<header><div><small>OBJEDNÁVKA ${pzEsc(r.kgNumber||'')}</small><h2>Stav objednávky a recenze</h2><p>${pzEsc(r.customer||'Bez názvu')}</p></div><button type="button" data-rv-close aria-label="Zavřít">×</button></header>`;
       const stateField=`<label style="display:block;margin:18px 0;font-weight:700">Stav objednávky<select data-rv-state style="display:block;width:100%;margin-top:8px;padding:12px;border-radius:10px;font:inherit" ${disabled}>${[['progress','Rozpracováno'],['waiting','Čeká na potvrzení'],['completed','Splněno'],['cancelled','Zrušeno']].map(([v,t])=>`<option value="${v}" ${status===v?'selected':''}>${t}</option>`).join('')}</select></label>`;
       const labels={scheduled:'Naplánováno',sent:'Odesláno',delivered:'Doručeno',canceled:'Zrušeno',pending:'Čeká na ověření správcem',error:'Chyba plánování',bounced:'Nedoručeno',failed:'Odeslání selhalo',complained:'Označeno jako spam'};
-      const email=s.email?`<section><h3>E-mail</h3><p>Automatické odeslání · ${pzEsc(r.email||'E-mail chybí')}</p>${job?`<p role="status"><strong>${pzEsc(labels[job.status]||job.status)}</strong>${job.scheduledAt?' · '+stamp(Date.parse(job.scheduledAt)):''}</p><button type="button" class="pz-mini-btn" data-rv-email="status" ${disabled}>Obnovit stav</button>${job.status==='scheduled'?` <button type="button" class="pz-mini-btn" data-rv-email="cancel" ${disabled}>Zrušit e-mail</button>`:''}`:`<button type="button" class="pz-mini-btn" data-rv-email="schedule" ${disabled||(blocked||!r.email?'disabled':'')}>Naplánovat e-mail za ${Number(s.delay)} min</button>`}</section>`:'';
+      const email=s.email?`<section><h3>E-mail</h3><p>Automatické odeslání · ${pzEsc(r.email||'E-mail chybí')}</p>${job?`<p role="status"><strong>${pzEsc(labels[job.status]||job.status)}</strong>${job.scheduledAt?' · '+stamp(Date.parse(job.scheduledAt)):''}</p><button type="button" class="pz-mini-btn" data-rv-email="status" ${disabled}>Obnovit stav</button>${job.status==='scheduled'?` <button type="button" class="pz-mini-btn" data-rv-email="cancel" ${disabled}>Zrušit e-mail</button>`:''}`:`<button type="button" class="pz-mini-btn" data-rv-email="schedule" ${disabled||(blocked||sent||!r.email?'disabled':'')}>Naplánovat e-mail za ${Number(s.delay)} min</button>`}</section>`:'';
       const manual=(channel,title,enabled)=>{
-        if(!enabled)return '';const c=pzReviewChannel(r,channel),ready=c.dueAt&&Date.now()>=c.dueAt;
-        let content=blocked?'<p>Pro přípravu recenze nastavte stav Splněno.</p>':!phone?'<p>Doplňte platné telefonní číslo včetně předvolby.</p>':channel==='whatsapp'&&noWa?'<p>U tohoto čísla je označeno „Nemá WhatsApp“.</p>':c.sentAt?`<p>✓ Ručně označeno jako odeslané ${stamp(c.sentAt)}</p>`:!c.dueAt?`<button type="button" class="pz-mini-btn" data-rv-start="${channel}" ${disabled}>Připravit ${title} za ${Number(s.delay)} min</button>`:ready?`<a class="pz-mini-btn" href="${pzEsc(links[channel])}" data-rv-compose="${channel}">Otevřít ${title} na ${pzEsc(phone)}</a>${channel==='whatsapp'?` <a class="pz-mini-btn" href="${pzEsc(links.whatsappWeb)}" target="_blank" rel="noopener noreferrer">Otevřít přes web WhatsApp</a>`:''} <button type="button" class="pz-mini-btn" data-rv-sent="${channel}">Označit jako odeslané</button>`:`<p>Výslovně připraveno · zpřístupní se ${stamp(c.dueAt)}.</p>`;
-        if(!blocked&&phone)content+=`<p><button type="button" class="pz-mini-btn" data-rv-copy="${channel}">Zkopírovat text zprávy</button></p>`;
-        return `<section><h3>${title}</h3><p>Ruční odeslání · ${pzEsc(r.phone||'Telefon chybí')}</p>${content}</section>`;
+        if(!enabled)return '';
+        let content=sent?'<p>✓ Žádost o recenzi už byla označena jako odeslaná.</p>':blocked?'<p>Pro odeslání recenze nastavte stav Splněno.</p>':!phone?'<p>Doplňte platné telefonní číslo včetně předvolby.</p>':channel==='whatsapp'&&noWa?'<p>U tohoto čísla je označeno „Nemá WhatsApp“.</p>':`<a class="pz-mini-btn" href="${pzEsc(links[channel])}" data-rv-compose="${channel}">Otevřít ${title} na ${pzEsc(phone)}</a>${channel==='whatsapp'?` <a class="pz-mini-btn" href="${pzEsc(links.whatsappWeb)}" target="_blank" rel="noopener noreferrer">Otevřít přes web WhatsApp</a>`:''}`;
+        if(!sent&&!blocked&&phone)content+=`<p><button type="button" class="pz-mini-btn" data-rv-copy="${channel}">Zkopírovat text zprávy</button></p>`;
+        return `<section><h3>${title}</h3><p>Ruční odeslání ihned · ${pzEsc(r.phone||'Telefon chybí')}</p>${content}</section>`;
       };
       const active=document.activeElement,focusChannel=active?.dataset?.rvCompose;
-      d.innerHTML=header+`<div class="pz-rv-body">${stateField}<p>${blocked?'Změna stavu ani otevření tohoto okna nic neposílá.':'Každý kanál připravíte samostatným kliknutím. Odstup se počítá až od tohoto potvrzení.'}</p>${email}${manual('whatsapp','WhatsApp',s.whatsapp)}${manual('sms','SMS',s.sms)}<small>WhatsApp a SMS odešlete až tlačítkem Odeslat v telefonu. SMS se řídí Vaším tarifem. Pokud se aplikace neotevře, použijte kopii textu.</small><div id="pz-rv-message" role="status"></div></div>`;
+      d.innerHTML=header+`<div class="pz-rv-body">${stateField}<section><label style="display:flex;align-items:center;gap:10px;font-weight:700"><input type="checkbox" data-rv-sent-all ${sent?'checked':''} ${disabled}> Žádost o recenzi už byla odeslána</label><p>Jedno společné potvrzení pro e-mail, SMS i WhatsApp. Zaškrtněte až po skutečném odeslání. Omyl opravíte zrušením zaškrtnutí.</p></section><p>${blocked?'Změna stavu ani otevření tohoto okna nic neposílá.':'SMS a WhatsApp otevřete ihned. E-mail odejde po nastaveném odstupu až po jeho naplánování.'}</p>${email}${manual('whatsapp','WhatsApp',s.whatsapp)}${manual('sms','SMS',s.sms)}<small>WhatsApp a SMS odešlete až tlačítkem Odeslat v telefonu. SMS se řídí Vaším tarifem. Pokud se aplikace neotevře, použijte kopii textu.</small><div id="pz-rv-message" role="status"></div></div>`;
       pzReviewDialogId=id;if(!d.open)d.showModal();
       if(focusChannel)d.querySelector('[data-rv-compose="'+focusChannel+'"]')?.focus();
     }
@@ -6991,9 +6992,26 @@ function pzConfirmPermanentDelete(all=false){
     function pzReviewSettingsPanel(){
       const host=$('pz-library-content');if(!host)return;const s=pzReviewSettings();
       const numbers=[...new Set([...s.noWhatsApp.split(/[\n,;]/),...pzRecords().filter(r=>r.manualReview?.noWhatsApp).map(r=>r.phone)].map(pzManualPhone).filter(Boolean))].join('\n');
-      host.innerHTML=`<div class="pz-rv-settings"><button type="button" class="pz-s9-back" data-rv-settings-back>← Zpět do Nastavení</button><h3>Odesílání recenzí</h3><p>Nastavení v tomto zařízení. Změny platí pro nová potvrzení a nové e-maily; stávající termíny zůstávají.</p><label>Odstup všech tří možností (minuty)<input id="pz-rv-delay" type="number" min="1" max="43200" step="1" value="${Number(s.delay)}"></label><small>Nyní testovací režim 5 minut. Pro 2 dny nastavte 2880 minut.</small>${[['email','E-mail – automatické odeslání'],['whatsapp','WhatsApp – ruční odeslání'],['sms','SMS – ruční odeslání']].map(([key,label])=>`<label><input type="checkbox" id="pz-rv-${key}" ${s[key]?'checked':''}> ${label}</label>`).join('')}<label>Telefonní čísla bez WhatsAppu<textarea id="pz-rv-nowa" rows="4" placeholder="Jedno číslo na řádek, např. +420773214618">${pzEsc(numbers)}</textarea></label><button type="button" class="pz-mini-btn" data-rv-settings-save>Uložit nastavení</button><p id="pz-rv-settings-status" role="status"></p></div>`;
+      host.innerHTML=`<div class="pz-rv-settings"><button type="button" class="pz-s9-back" data-rv-settings-back>← Zpět do Nastavení</button><h3>Odesílání recenzí</h3><p>Nastavení v tomto zařízení. Změny platí pro nová potvrzení a nové e-maily; stávající termíny zůstávají.</p><label>Odstup automatického e-mailu (minuty)<input id="pz-rv-delay" type="number" min="1" max="43200" step="1" value="${Number(s.delay)}"></label><small>SMS a WhatsApp jsou dostupné ihned. E-mail: testovací odstup 5 minut; pro 2 dny nastavte 2880 minut.</small>${[['email','E-mail – automatické odeslání'],['whatsapp','WhatsApp – ruční odeslání'],['sms','SMS – ruční odeslání']].map(([key,label])=>`<label><input type="checkbox" id="pz-rv-${key}" ${s[key]?'checked':''}> ${label}</label>`).join('')}<label>Telefonní čísla bez WhatsAppu<textarea id="pz-rv-nowa" rows="4" placeholder="Jedno číslo na řádek, např. +420773214618">${pzEsc(numbers)}</textarea></label><button type="button" class="pz-mini-btn" data-rv-settings-save>Uložit nastavení</button><p id="pz-rv-settings-status" role="status"></p></div>`;
     }
     document.addEventListener('change',async e=>{
+      const sentField=e.target.closest('[data-rv-sent-all]');
+      if(sentField){
+        const id=pzReviewDialogId;if(!id||pzReviewBusy)return;
+        const checked=sentField.checked;pzReviewBusy=true;
+        try{
+          let r=pzRecords().find(x=>x.id===id&&x.type==='archive');if(!r)throw Error('Objednávka není v Archivu.');
+          if(checked&&pzReviewJobs.get(id)?.status==='scheduled'){
+            if(!confirm('Je naplánovaný e-mail. Zrušit jej a označit žádost jako již odeslanou jiným způsobem?'))return;
+            await pzReviewCall(id,'cancel');
+          }
+          r=pzRecords().find(x=>x.id===id&&x.type==='archive');
+          pzReviewSave(id,{manualReview:{...(r.manualReview||{}),reviewSent:checked,reviewSentAt:checked?Date.now():null}});
+          pzRenderLibrary();
+        }catch(err){showToast(err.message);}
+        finally{pzReviewBusy=false;pzReviewDialogRender(id);}
+        return;
+      }
       const field=e.target.closest('[data-rv-state]');if(!field||pzReviewBusy)return;
       const id=pzReviewDialogId;if(!id)return;pzReviewBusy=true;
       try{await pzReviewChangeState(id,field.value);pzRenderLibrary();}
@@ -7018,8 +7036,8 @@ function pzConfirmPermanentDelete(all=false){
         if(b.hasAttribute('data-rv-open')){pzReviewDialogRender(b.dataset.rvOpen);return;}
         const id=pzReviewDialogId,r=pzRecords().find(x=>x.id===id&&x.type==='archive');if(!r)throw Error('Objednávka není v Archivu.');
         if(b.hasAttribute('data-rv-compose')){
-          const channel=b.dataset.rvCompose,c=pzReviewChannel(r,channel),links=pzReviewLinks(r);
-          if(pzReviewStatus(r)!=='completed'||!links||!c.dueAt||Date.now()<c.dueAt||c.sentAt){e.preventDefault();throw Error('Nejdříve výslovně připravte zprávu a vyčkejte na nastavený čas.');}
+          const channel=b.dataset.rvCompose,links=pzReviewLinks(r);
+          if(pzReviewStatus(r)!=='completed'||!links||pzReviewSent(r)){e.preventDefault();throw Error('Zkontrolujte stav objednávky, telefonní číslo a potvrzení odeslání.');}
           e.preventDefault();if(!['sms','whatsapp'].includes(channel))return;window.location.assign(links[channel]);return; // Launch synchronously within the user click; keep the dialog available on return.
         }
         if(pzReviewBusy)return;
@@ -7034,25 +7052,15 @@ function pzConfirmPermanentDelete(all=false){
           catch(_){const out=document.getElementById('pz-rv-message'),ta=document.createElement('textarea');ta.value=text;ta.readOnly=true;ta.rows=8;ta.style.width='100%';out.textContent='Zkopírujte text ručně:';out.appendChild(ta);ta.focus();ta.select();}
           return;
         }
-        if(b.hasAttribute('data-rv-start')){
-          const channel=b.dataset.rvStart;if(!['whatsapp','sms'].includes(channel)||!pzReviewLinks(r))throw Error('Zkontrolujte telefonní číslo.');
-          const c=pzReviewChannel(r,channel);if(c.dueAt||c.sentAt)throw Error('Tento kanál už je připraven nebo odeslán.');
-          if(!confirm('Připravit '+(channel==='sms'?'SMS':'WhatsApp')+' za '+Number(pzReviewSettings().delay)+' minut? Zprávu pak odešlete ručně v telefonu.'))return;
-          const now=Date.now();pzReviewSave(id,{manualReview:{...(r.manualReview||{}),channels:{...(r.manualReview?.channels||{}),[channel]:{preparedAt:now,dueAt:now+Number(pzReviewSettings().delay)*60000}}}});pzReviewDialogRender(id);return;
-        }
-        if(b.hasAttribute('data-rv-sent')){
-          const channel=b.dataset.rvSent,c=pzReviewChannel(r,channel);if(!c.dueAt||Date.now()<c.dueAt||c.sentAt)throw Error('Zpráva není připravená k odeslání.');
-          if(!confirm('Potvrzujete skutečné odeslání zprávy v telefonu?'))return;
-          pzReviewSave(id,{manualReview:{...(r.manualReview||{}),channels:{...(r.manualReview?.channels||{}),[channel]:{...c,sentAt:Date.now()}}}});pzReviewDialogRender(id);return;
-        }
         if(b.dataset.rvEmail!=='schedule')return;
+        if(pzReviewSent(r))throw Error('Žádost o recenzi už byla označena jako odeslaná.');
         if(!confirm('Naplánovat automatický e-mail zákazníkovi za '+Number(pzReviewSettings().delay)+' minut?'))return;
         pzReviewBusy=true;pzReviewDialogRender(id);
         try{if(!await pzCloudSaveRecord(r))throw Error('Nejdříve synchronizujte objednávku.');await pzReviewCall(id,'schedule');}finally{pzReviewBusy=false;}
         pzReviewDialogRender(id);
       }catch(err){if(b.tagName==='A')e.preventDefault();pzReviewBusy=false;if(pzReviewDialog?.open&&pzReviewDialogId)pzReviewDialogRender(pzReviewDialogId);const out=document.getElementById('pz-rv-message')||document.getElementById('pz-rv-settings-status');if(out)out.textContent=err.message;else showToast(err.message);}
     });
-    setInterval(()=>{if(!pzReviewDialog?.open||!pzReviewDialogId||pzReviewBusy)return;const r=pzRecords().find(x=>x.id===pzReviewDialogId);if(!r||pzReviewStatus(r)!=='completed')return;for(const channel of ['sms','whatsapp']){const c=pzReviewChannel(r,channel);if(c.dueAt&&Date.now()>=c.dueAt&&!c.sentAt&&!pzReviewDialog.querySelector('[data-rv-compose="'+channel+'"]')){pzReviewDialogRender(r.id);break}}},10000);
+
 
     function pzArchiveDelivery(r){return (r.snapshot?.state?.cart||[]).find(i=>i&&i.type==='delivery')||null;}
     function pzArchiveDisplayAddress(r){const delivery=pzArchiveDelivery(r);return delivery?pzDeliveryAddress(delivery)||r.address:r.address;}
